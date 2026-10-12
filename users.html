@@ -1,0 +1,238 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+  <meta charset="UTF-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/>
+  <title>Quản lý tài khoản – KTPMUD</title>
+  <link rel="stylesheet" href="style.css"/>
+</head>
+<body>
+<div id="app"></div>
+<div id="toast-stack" class="toast-stack"></div>
+
+<!-- Modal thêm/sửa người dùng -->
+<div class="modal-overlay" id="m-user">
+  <div class="modal modal-md">
+    <div class="modal-header">
+      <div class="modal-title" id="m-user-title">➕ Thêm tài khoản</div>
+      <button class="modal-close" onclick="closeModal('m-user')">✕</button>
+    </div>
+    <form onsubmit="saveUser(event)">
+      <input type="hidden" id="u-id"/>
+      <div class="form-group">
+        <label class="form-label">Họ và tên <span class="form-required">*</span></label>
+        <input id="u-name" class="form-control" placeholder="Nguyễn Văn A" required/>
+      </div>
+      <div class="form-group">
+        <label class="form-label">Email <span class="form-required">*</span></label>
+        <input id="u-email" class="form-control" type="email" placeholder="example@edu.vn" required/>
+      </div>
+      <div class="form-group">
+        <label class="form-label">Mật khẩu <span id="pwd-hint" class="form-hint" style="display:none">(để trống = giữ nguyên)</span></label>
+        <input id="u-pwd" class="form-control" type="password" placeholder="••••••••"/>
+      </div>
+      <div class="form-group">
+        <label class="form-label">Vai trò <span class="form-required">*</span></label>
+        <select id="u-role" class="form-control" required>
+          <option value="sinhvien">🎓 Sinh viên</option>
+          <option value="nhomt">👑 Nhóm trưởng</option>
+          <option value="giaovien">👨‍🏫 Giảng viên</option>
+        </select>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" onclick="closeModal('m-user')">Hủy</button>
+        <button type="submit" class="btn btn-primary">💾 Lưu tài khoản</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<script src="data.js"></script>
+<script src="layout.js"></script>
+<script>
+const user = initPage('Tài khoản', 'users');
+if (user.role !== 'giaovien') navigate('dashboard.html');
+
+let filterRole = 'all';
+let searchText = '';
+
+function render() {
+  const el = document.getElementById('page-content');
+  let users = DB.users();
+
+  const totalAll = users.length;
+  const totalGV = users.filter(u => u.role === 'giaovien').length;
+  const totalNT = users.filter(u => u.role === 'nhomt').length;
+  const totalSV = users.filter(u => u.role === 'sinhvien').length;
+
+  if (filterRole !== 'all') {
+    users = users.filter(u => u.role === filterRole);
+  }
+  if (searchText) {
+    const q = searchText.toLowerCase();
+    users = users.filter(u =>
+      u.name.toLowerCase().includes(q) ||
+      u.email.toLowerCase().includes(q)
+    );
+  }
+
+  el.innerHTML = `
+    <div class="page-header-row">
+      <div>
+        <h1>⚙️ Quản lý tài khoản</h1>
+        <p class="page-desc">${totalAll} tài khoản trong hệ thống</p>
+      </div>
+      <button class="btn btn-primary" onclick="openUserModal()">➕ Thêm tài khoản</button>
+    </div>
+
+    <div class="stat-grid" style="grid-template-columns:repeat(4,1fr);margin-bottom:20px">
+      <div class="stat-card">
+        <div class="stat-icon si-black">👥</div>
+        <div><div class="stat-val">${totalAll}</div><div class="stat-lbl">Tổng tài khoản</div></div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-icon si-gray">👨‍🏫</div>
+        <div><div class="stat-val">${totalGV}</div><div class="stat-lbl">Giảng viên</div></div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-icon si-gray">👑</div>
+        <div><div class="stat-val">${totalNT}</div><div class="stat-lbl">Nhóm trưởng</div></div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-icon si-white">🎓</div>
+        <div><div class="stat-val">${totalSV}</div><div class="stat-lbl">Sinh viên</div></div>
+      </div>
+    </div>
+
+    <div class="card" style="margin-bottom:16px">
+      <div class="flex items-center gap-3 flex-wrap">
+        <div style="flex:1;min-width:200px">
+          <input class="form-control" id="search-input" placeholder="🔍 Tìm theo họ tên hoặc email..."
+            value="${searchText}" oninput="handleSearch(this.value)"/>
+        </div>
+        <div class="flex gap-2">
+          ${[
+            ['all', 'Tất cả'],
+            ['giaovien', 'Giảng viên'],
+            ['nhomt', 'Nhóm trưởng'],
+            ['sinhvien', 'Sinh viên']
+          ].map(([r, label]) => `
+            <button class="btn ${filterRole === r ? 'btn-primary' : 'btn-secondary'} btn-sm"
+              onclick="setFilter('${r}')">${label}</button>
+          `).join('')}
+        </div>
+      </div>
+    </div>
+
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th>#</th>
+            <th>Họ và tên</th>
+            <th>Email</th>
+            <th>Vai trò</th>
+            <th>Nhóm dự án</th>
+            <th>Mật khẩu</th>
+            <th>Thao tác</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${users.length === 0 ? `
+            <tr><td colspan="7"><div class="empty"><div class="empty-icon">👤</div><p>Không tìm thấy tài khoản nào</p></div></td></tr>
+          ` : users.map((u, idx) => {
+            const group = DB.groupOfUser(u.id);
+            return `<tr>
+              <td class="text-muted">${idx + 1}</td>
+              <td>
+                <div class="flex items-center gap-2">
+                  <div class="avatar" style="width:28px;height:28px;font-size:10px;background:${avatarBg(u.name)}">${getInitials(u.name)}</div>
+                  <span class="font-semibold text-sm">${u.name}</span>
+                  ${u.id === user.id ? '<span class="badge badge-black" style="font-size:9px">Bạn</span>' : ''}
+                </div>
+              </td>
+              <td class="td-muted">${u.email}</td>
+              <td>
+                ${u.role === 'giaovien' ? '<span class="badge badge-black">GV</span>' :
+                  u.role === 'nhomt' ? '<span class="badge badge-gray font-bold">NT</span>' :
+                  '<span class="badge badge-outline">SV</span>'}
+              </td>
+              <td>
+                ${group ? `<span class="chip">${group.name}</span>` : '<span class="text-muted">—</span>'}
+              </td>
+              <td><span class="chip" style="font-family:monospace;letter-spacing:1px">••••••</span></td>
+              <td>
+                <div class="flex gap-1">
+                  <button class="btn btn-secondary btn-sm" onclick="openUserModal('${u.id}')">✏️ Sửa</button>
+                  ${u.id !== user.id ? `
+                    <button class="btn btn-danger btn-sm btn-icon-sm" onclick="delUser('${u.id}')">🗑️</button>
+                  ` : ''}
+                </div>
+              </td>
+            </tr>`;
+          }).join('')}
+        </tbody>
+      </table>
+    </div>
+  `;
+
+  document.getElementById('search-input').oninput = e => { searchText = e.target.value; render(); };
+}
+
+window.handleSearch = function(val) { searchText = val; render(); };
+window.setFilter = function(r) { filterRole = r; render(); };
+
+window.openUserModal = function(uid = '') {
+  const u = uid ? DB.findUserById(uid) : null;
+  document.getElementById('m-user-title').textContent = u ? '✏️ Sửa tài khoản' : '➕ Thêm tài khoản mới';
+  document.getElementById('u-id').value = uid;
+  document.getElementById('u-name').value = u?.name || '';
+  document.getElementById('u-email').value = u?.email || '';
+  document.getElementById('u-pwd').value = '';
+  document.getElementById('u-role').value = u?.role || 'sinhvien';
+  document.getElementById('pwd-hint').style.display = u ? 'inline' : 'none';
+  openModal('m-user');
+};
+
+window.saveUser = function(e) {
+  e.preventDefault();
+  const id = document.getElementById('u-id').value;
+  const name = document.getElementById('u-name').value.trim();
+  const email = document.getElementById('u-email').value.trim();
+  const pwd = document.getElementById('u-pwd').value;
+  const role = document.getElementById('u-role').value;
+
+  if (!name || !email) { showToast('Vui lòng nhập đầy đủ thông tin!', 'error'); return; }
+
+  const exist = DB.findUser(email);
+  if (exist && exist.id !== id) {
+    showToast('Email này đã được sử dụng!', 'error');
+    return;
+  }
+
+  if (id) {
+    const upd = { id, name, email, role };
+    if (pwd) upd.password = pwd;
+    DB.updateUser(upd);
+    showToast('✅ Đã cập nhật tài khoản!', 'success');
+  } else {
+    if (!pwd) { showToast('Vui lòng nhập mật khẩu cho tài khoản mới!', 'error'); return; }
+    DB.addUser({ id: uid(), name, email, password: pwd, role });
+    showToast('✅ Đã thêm tài khoản mới!', 'success');
+  }
+
+  closeModal('m-user');
+  render();
+};
+
+window.delUser = function(id) {
+  const u = DB.findUserById(id);
+  if (!confirm(`Xóa tài khoản ${u?.name || ''}?`)) return;
+  DB.deleteUser(id);
+  showToast('✅ Đã xóa tài khoản!', 'success');
+  render();
+};
+
+render();
+</script>
+</body>
+</html>

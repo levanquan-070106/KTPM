@@ -1,0 +1,279 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+  <meta charset="UTF-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/>
+  <title>Nhập điểm – KTPMUD</title>
+  <link rel="stylesheet" href="style.css"/>
+</head>
+<body>
+<div id="app"></div>
+<div id="toast-stack" class="toast-stack"></div>
+
+<!-- Modal nhập điểm nhóm -->
+<div class="modal-overlay" id="m-grade">
+  <div class="modal modal-md">
+    <div class="modal-header">
+      <div class="modal-title" id="m-grade-title">🏆 Nhập điểm nhóm</div>
+      <button class="modal-close" onclick="closeModal('m-grade')">✕</button>
+    </div>
+    <div id="m-grade-info" style="margin-bottom:16px"></div>
+    <form onsubmit="saveGradeGroup(event)">
+      <input type="hidden" id="gid"/>
+      <div class="form-row">
+        <div class="form-group">
+          <label class="form-label">Điểm quá trình <span class="form-required">*</span> <span class="text-muted text-xs">(30%)</span></label>
+          <input id="g-proc" class="form-control" type="number" min="0" max="10" step="0.1" placeholder="0–10" oninput="calcTotal()"/>
+          <div class="form-hint">Dựa trên báo cáo tuần và tiến độ</div>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Điểm giữa kỳ <span class="text-muted text-xs">(20%)</span></label>
+          <input id="g-mid" class="form-control" type="number" min="0" max="10" step="0.1" placeholder="0–10" oninput="calcTotal()"/>
+        </div>
+      </div>
+      <div class="form-row">
+        <div class="form-group">
+          <label class="form-label">Điểm cuối kỳ <span class="text-muted text-xs">(50%)</span></label>
+          <input id="g-final" class="form-control" type="number" min="0" max="10" step="0.1" placeholder="0–10" oninput="calcTotal()"/>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Điểm tổng kết (tự tính)</label>
+          <input id="g-total" class="form-control" type="number" readonly style="background:var(--gray-50);font-weight:700"/>
+        </div>
+      </div>
+      <div class="form-group">
+        <label class="form-label">Nhận xét chung</label>
+        <textarea id="g-note" class="form-control" rows="3" placeholder="Nhận xét tổng thể về dự án..."></textarea>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" onclick="closeModal('m-grade')">Hủy</button>
+        <button type="submit" class="btn btn-primary">💾 Lưu điểm</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<script src="data.js"></script>
+<script src="layout.js"></script>
+<!-- SheetJS for Excel export -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<script>
+const user = initPage('Nhập điểm', 'grading');
+if (user.role !== 'giaovien') navigate('dashboard.html');
+
+function render() {
+  const el = document.getElementById('page-content');
+  const cid = DB.curClassId();
+  const myClasses = DB.classes().filter(c=>c.lecturerId===user.id);
+  const groups = cid ? DB.groupsByClass(cid) : DB.groups().filter(g=>myClasses.some(c=>c.id===g.classId));
+
+  const graded = groups.filter(g=>DB.gradeByGroup(g.id)?.totalScore!==null&&DB.gradeByGroup(g.id)?.totalScore!==undefined);
+
+  el.innerHTML = `
+    <div class="page-header-row">
+      <div><h1>✍️ Nhập điểm tổng kết</h1><p class="page-desc">Nhập điểm quá trình, giữa kỳ, cuối kỳ cho từng nhóm</p></div>
+      <div class="flex gap-2">
+        <button class="btn btn-secondary" onclick="exportExcelGrades()">📥 Xuất Excel (.xlsx)</button>
+        <button class="btn btn-primary" onclick="exportExcelFull()">📊 Xuất đầy đủ</button>
+      </div>
+    </div>
+
+    <!-- Cơ cấu điểm -->
+    <div class="card" style="margin-bottom:20px">
+      <div class="card-label">CƠ CẤU ĐIỂM</div>
+      <div class="grid-3">
+        ${[['30%','Điểm quá trình','Báo cáo tuần, tiến độ Kanban'],
+           ['20%','Điểm giữa kỳ','Demo giữa học kỳ'],
+           ['50%','Điểm cuối kỳ','Demo sản phẩm, báo cáo cuối']].map(([pct,label,desc])=>`
+          <div style="text-align:center;padding:16px;background:var(--gray-50);border-radius:var(--radius)">
+            <div style="font-size:32px;font-weight:900">${pct}</div>
+            <div class="font-semibold text-sm mt-1">${label}</div>
+            <div class="text-xs text-muted mt-1">${desc}</div>
+          </div>`).join('')}
+      </div>
+    </div>
+
+    <div class="table-wrap">
+      <table>
+        <thead><tr>
+          <th>#</th><th>Nhóm</th><th>Dự án</th><th>TB BC tuần</th>
+          <th>ĐQT (30%)</th><th>ĐGK (20%)</th><th>ĐCK (50%)</th>
+          <th>Tổng kết</th><th>Xếp loại</th><th></th>
+        </tr></thead>
+        <tbody>
+          ${groups.map((g,i)=>{
+            const grade = DB.gradeByGroup(g.id);
+            const reps = DB.reportsByGroup(g.id).filter(r=>r.status==='graded');
+            const avg = reps.length>0?(reps.reduce((s,r)=>s+r.grade,0)/reps.length).toFixed(1):null;
+            const leader = DB.findUserById(g.leaderId);
+            return `<tr>
+              <td class="text-muted">${i+1}</td>
+              <td><div class="font-bold">${g.name}</div><div class="td-muted">NT: ${leader?.name||'—'} · ${g.members.length} SV</div></td>
+              <td><div style="font-size:12px;max-width:160px">${g.project}</div></td>
+              <td>${avg?`<span class="font-bold ${scoreClass(parseFloat(avg))}">${avg}</span>`:'<span class="text-muted">—</span>'}</td>
+              <td>${grade?.processScore!=null?`<span style="font-weight:700">${grade.processScore}</span>`:'<span class="text-muted">—</span>'}</td>
+              <td>${grade?.midtermScore!=null?`<span style="font-weight:700">${grade.midtermScore}</span>`:'<span class="text-muted">—</span>'}</td>
+              <td>${grade?.finalScore!=null?`<span style="font-weight:700">${grade.finalScore}</span>`:'<span class="text-muted">—</span>'}</td>
+              <td>${grade?.totalScore!=null?`<span class="font-black ${scoreClass(grade.totalScore)}" style="font-size:16px">${grade.totalScore}</span>`:'<span class="badge badge-gray">Chưa có</span>'}</td>
+              <td>${grade?.totalScore!=null?`<span class="font-black ${scoreClass(grade.totalScore)}">${gradeLetterFromScore(grade.totalScore)}</span>`:'—'}</td>
+              <td><button class="btn btn-primary btn-sm" onclick="openGradeModal('${g.id}')">${grade?.totalScore!=null?'✏️':'📝'} Điểm</button></td>
+            </tr>`;
+          }).join('')}
+        </tbody>
+      </table>
+    </div>`;
+}
+
+window.calcTotal = function() {
+  const p = parseFloat(document.getElementById('g-proc').value)||0;
+  const m = parseFloat(document.getElementById('g-mid').value)||0;
+  const f = parseFloat(document.getElementById('g-final').value)||0;
+  const t = (p*0.3 + m*0.2 + f*0.5).toFixed(2);
+  document.getElementById('g-total').value = t > 0 ? t : '';
+};
+
+window.openGradeModal = function(gid) {
+  const g = DB.findGroup(gid);
+  const grade = DB.gradeByGroup(gid);
+  const reps = DB.reportsByGroup(gid).filter(r=>r.status==='graded');
+  const avg = reps.length>0?(reps.reduce((s,r)=>s+r.grade,0)/reps.length).toFixed(1):null;
+
+  document.getElementById('m-grade-title').textContent = `🏆 Nhập điểm – ${g.name}`;
+  document.getElementById('gid').value = gid;
+  document.getElementById('g-proc').value = grade?.processScore ?? (avg||'');
+  document.getElementById('g-mid').value  = grade?.midtermScore ?? '';
+  document.getElementById('g-final').value= grade?.finalScore ?? '';
+  document.getElementById('g-note').value = grade?.note ?? '';
+  calcTotal();
+
+  const leader = DB.findUserById(g.leaderId);
+  document.getElementById('m-grade-info').innerHTML = `
+    <div class="card card-sm" style="background:var(--gray-50)">
+      <div class="font-bold mb-1">${g.name} – ${g.project}</div>
+      <div class="flex gap-3 text-xs text-muted flex-wrap">
+        <span>👑 ${leader?.name||'—'}</span>
+        <span>👥 ${g.members.length} thành viên</span>
+        <span>📋 ${reps.length} báo cáo đã chấm</span>
+        ${avg?`<span>⭐ TB BC: <strong>${avg}/10</strong></span>`:''}
+      </div>
+    </div>`;
+  openModal('m-grade');
+};
+
+window.saveGradeGroup = function(e) {
+  e.preventDefault();
+  const gid = document.getElementById('gid').value;
+  const p   = parseFloat(document.getElementById('g-proc').value);
+  const m   = parseFloat(document.getElementById('g-mid').value)||null;
+  const f   = parseFloat(document.getElementById('g-final').value)||null;
+  const note= document.getElementById('g-note').value.trim();
+  if (isNaN(p)||p<0||p>10) { showToast('Điểm quá trình phải từ 0–10!','error'); return; }
+  const total = m!=null&&f!=null ? parseFloat((p*0.3+m*0.2+f*0.5).toFixed(2)) : null;
+  DB.setGrade({ groupId:gid, processScore:p, midtermScore:m, finalScore:f, totalScore:total, note, gradedBy:user.id, gradedAt:new Date().toISOString() });
+  showToast('✅ Đã lưu điểm!','success');
+  closeModal('m-grade');
+  render();
+};
+
+/* ════ EXCEL EXPORT ════ */
+window.exportExcelGrades = function() {
+  const cid = DB.curClassId();
+  const myClasses = DB.classes().filter(c=>c.lecturerId===user.id);
+  const cls = cid ? DB.findClass(cid) : null;
+  const groups = cid ? DB.groupsByClass(cid) : DB.groups().filter(g=>myClasses.some(c=>c.id===g.classId));
+
+  const wb = XLSX.utils.book_new();
+
+  // Sheet 1: Bảng điểm nhóm
+  const groupData = groups.map((g,i)=>{
+    const grade = DB.gradeByGroup(g.id);
+    const reps = DB.reportsByGroup(g.id).filter(r=>r.status==='graded');
+    const avg = reps.length>0?(reps.reduce((s,r)=>s+r.grade,0)/reps.length).toFixed(1):'';
+    const leader = DB.findUserById(g.leaderId);
+    return {
+      'STT': i+1,
+      'Tên nhóm': g.name,
+      'Tên dự án': g.project,
+      'Công nghệ': g.tech,
+      'Nhóm trưởng': leader?.name||'',
+      'Số SV': g.members.length,
+      'TB Báo cáo tuần': avg,
+      'Điểm quá trình (30%)': grade?.processScore??'',
+      'Điểm giữa kỳ (20%)': grade?.midtermScore??'',
+      'Điểm cuối kỳ (50%)': grade?.finalScore??'',
+      'Điểm tổng kết': grade?.totalScore??'',
+      'Xếp loại': grade?.totalScore!=null?gradeLetterFromScore(grade.totalScore):'',
+      'Nhận xét': grade?.note||'',
+    };
+  });
+  const ws1 = XLSX.utils.json_to_sheet(groupData);
+  ws1['!cols'] = Object.keys(groupData[0]||{}).map(h=>({wch:Math.max(h.length+2,12)}));
+  XLSX.utils.book_append_sheet(wb, ws1, 'Bảng điểm nhóm');
+
+  // Sheet 2: Điểm từng sinh viên
+  const svData = [];
+  let idx=0;
+  groups.forEach(g=>{
+    const grade = DB.gradeByGroup(g.id);
+    g.members.forEach(mid=>{
+      const m = DB.findUserById(mid);
+      if(!m) return;
+      idx++;
+      svData.push({
+        'STT': idx,
+        'Email': m.email,
+        'Họ tên': m.name,
+        'Vai trò': m.role==='nhomt'?'Nhóm trưởng':'Sinh viên',
+        'Nhóm': g.name,
+        'Dự án': g.project,
+        'Điểm QT': grade?.processScore??'',
+        'Điểm GK': grade?.midtermScore??'',
+        'Điểm CK': grade?.finalScore??'',
+        'Tổng kết': grade?.totalScore??'',
+        'Xếp loại': grade?.totalScore!=null?gradeLetterFromScore(grade.totalScore):'',
+      });
+    });
+  });
+  const ws2 = XLSX.utils.json_to_sheet(svData);
+  ws2['!cols'] = Object.keys(svData[0]||{}).map(h=>({wch:Math.max(h.length+2,12)}));
+  XLSX.utils.book_append_sheet(wb, ws2, 'Điểm sinh viên');
+
+  const clsName = cls?.name?.replace(/[\\/:*?"<>|]/g,'_')||'TatCaLop';
+  const date = new Date().toISOString().split('T')[0];
+  XLSX.writeFile(wb, `BangDiem_${clsName}_${date}.xlsx`);
+  showToast('✅ Đã xuất file Excel!', 'success');
+};
+
+window.exportExcelFull = function() {
+  const cid = DB.curClassId();
+  const myClasses = DB.classes().filter(c=>c.lecturerId===user.id);
+  const groups = cid ? DB.groupsByClass(cid) : DB.groups().filter(g=>myClasses.some(c=>c.id===g.classId));
+  const wb = XLSX.utils.book_new();
+
+  // Sheet per group: week-by-week reports
+  groups.forEach(g=>{
+    const reps = DB.reportsByGroup(g.id);
+    const weekData = Array.from({length:16},(_,i)=>{
+      const w=i+1, r=reps.find(x=>x.week===w);
+      return {
+        'Tuần': w,
+        'Trạng thái': r ? (r.status==='graded'?'Đã chấm':r.status==='submitted'?'Chờ chấm':'Nháp') : 'Chưa nộp',
+        'Nộp lúc': r?fmtDateTime(r.submittedAt):'',
+        'File đính kèm': r?.files?.map(f=>f.name).join(', ')||'',
+        'Điểm': r?.grade??'',
+        'Nhận xét GV': r?.feedback||'',
+      };
+    });
+    const ws = XLSX.utils.json_to_sheet(weekData);
+    ws['!cols'] = [{wch:6},{wch:12},{wch:18},{wch:28},{wch:8},{wch:40}];
+    XLSX.utils.book_append_sheet(wb, ws, g.name.slice(0,31));
+  });
+
+  const date = new Date().toISOString().split('T')[0];
+  XLSX.writeFile(wb, `BaoCaoTuan_DayDu_${date}.xlsx`);
+  showToast('✅ Đã xuất file Excel đầy đủ!','success');
+};
+
+render();
+</script>
+</body>
+</html>

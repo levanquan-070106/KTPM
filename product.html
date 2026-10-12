@@ -1,0 +1,424 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+  <meta charset="UTF-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/>
+  <title>Sản phẩm cuối kỳ – KTPMUD</title>
+  <link rel="stylesheet" href="style.css"/>
+</head>
+<body>
+<div id="app"></div>
+<div id="toast-stack" class="toast-stack"></div>
+
+<!-- Modal: Nhóm trưởng nộp/sửa sản phẩm -->
+<div class="modal-overlay" id="m-product">
+  <div class="modal modal-lg">
+    <div class="modal-header">
+      <div class="modal-title" id="m-prod-title">📦 Nộp sản phẩm cuối kỳ</div>
+      <button class="modal-close" onclick="closeModal('m-product')">✕</button>
+    </div>
+    <form onsubmit="saveProduct(event)">
+      <input type="hidden" id="prod-id"/>
+      <div class="form-group">
+        <label class="form-label">Tên sản phẩm / ứng dụng <span class="form-required">*</span></label>
+        <input id="prod-name" class="form-control" placeholder="Hệ thống quản lý..." required/>
+      </div>
+      <div class="form-group">
+        <label class="form-label">Mô tả sản phẩm & kết quả đạt được <span class="form-required">*</span></label>
+        <textarea id="prod-desc" class="form-control" rows="4" placeholder="Mô tả các tính năng cốt lõi, kiến trúc, công nghệ và kết quả nghiệm thu..." required></textarea>
+      </div>
+      <div class="form-row">
+        <div class="form-group">
+          <label class="form-label">Link GitHub / Source code</label>
+          <input id="prod-github" class="form-control" placeholder="https://github.com/..."/>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Link Demo / Deployment</label>
+          <input id="prod-demo" class="form-control" placeholder="https://demo-app.com"/>
+        </div>
+      </div>
+      <div class="form-row">
+        <div class="form-group">
+          <label class="form-label">Link Video Demo (YouTube / Drive)</label>
+          <input id="prod-video" class="form-control" placeholder="https://youtube.com/watch?..."/>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Nhóm tự đánh giá (0–10)</label>
+          <input id="prod-self" class="form-control" type="number" min="0" max="10" step="0.5" placeholder="8.5"/>
+        </div>
+      </div>
+      <div class="form-group">
+        <label class="form-label">Tài liệu báo cáo cuối kỳ (.docx, .pptx, .pdf)</label>
+        <input id="prod-files" class="form-control" placeholder="BaoCaoCuoiKy.docx, SlideBaoCao.pptx, TaiLieuAPI.pdf"/>
+        <div class="form-hint">Nhập tên các file tài liệu và slide đã đính kèm</div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" onclick="closeModal('m-product')">Hủy</button>
+        <button type="submit" class="btn btn-primary">📤 Nộp sản phẩm</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- Modal: Giảng viên chấm điểm sản phẩm -->
+<div class="modal-overlay" id="m-grade-prod">
+  <div class="modal modal-md">
+    <div class="modal-header">
+      <div class="modal-title" id="m-gp-title">✍️ Chấm điểm sản phẩm cuối kỳ</div>
+      <button class="modal-close" onclick="closeModal('m-grade-prod')">✕</button>
+    </div>
+    <div id="m-gp-preview" style="margin-bottom:14px"></div>
+    <form onsubmit="saveProductGrade(event)">
+      <input type="hidden" id="gp-pid"/>
+      <input type="hidden" id="gp-gid"/>
+      <div class="form-row">
+        <div class="form-group">
+          <label class="form-label">Điểm cuối kỳ (CK 50%) <span class="form-required">*</span></label>
+          <input id="gp-score" class="form-control" type="number" min="0" max="10" step="0.1" placeholder="0–10" required/>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Điểm nhóm tự đánh giá</label>
+          <input id="gp-self-view" class="form-control" readonly style="background:var(--gray-50);color:var(--text-muted)"/>
+        </div>
+      </div>
+      <div class="form-group">
+        <label class="form-label">Nhận xét của giảng viên <span class="form-required">*</span></label>
+        <textarea id="gp-fb" class="form-control" rows="4" placeholder="Đánh giá mức độ hoàn thiện sản phẩm, kỹ năng thuyết trình, source code..." required></textarea>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" onclick="closeModal('m-grade-prod')">Hủy</button>
+        <button type="submit" class="btn btn-success">✅ Lưu điểm cuối kỳ</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<script src="data.js"></script>
+<script src="layout.js"></script>
+<script>
+const user = initPage('Sản phẩm cuối kỳ', 'product');
+
+function render() {
+  const el = document.getElementById('page-content');
+  if (user.role === 'giaovien') renderGV(el);
+  else renderGroup(el);
+}
+
+/* ═════ GIẢNG VIÊN ═════ */
+function renderGV(el) {
+  const cid = DB.curClassId();
+  const cls = cid ? DB.findClass(cid) : null;
+  const myClasses = DB.classes().filter(c => c.lecturerId === user.id);
+  const groups = cid ? DB.groupsByClass(cid) : DB.groups().filter(g => myClasses.some(c => c.id === g.classId));
+  const products = DB.products();
+
+  const submittedCount = products.filter(p => groups.some(g => g.id === p.groupId)).length;
+  const gradedCount = products.filter(p => groups.some(g => g.id === p.groupId) && p.grade != null).length;
+  const pendingCount = submittedCount - gradedCount;
+
+  el.innerHTML = `
+    <div class="page-header-row">
+      <div>
+        <h1>📦 Sản phẩm cuối kỳ</h1>
+        <p class="page-desc">${cls ? cls.name + ' · ' : ''}Theo dõi và chấm điểm sản phẩm hoàn thiện của các nhóm</p>
+      </div>
+    </div>
+
+    <div class="stat-grid" style="grid-template-columns:repeat(4,1fr);margin-bottom:20px">
+      <div class="stat-card">
+        <div class="stat-icon si-black">📦</div>
+        <div><div class="stat-val">${groups.length}</div><div class="stat-lbl">Tổng nhóm</div></div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-icon si-gray">📤</div>
+        <div><div class="stat-val">${submittedCount}</div><div class="stat-lbl">Đã nộp</div></div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-icon si-white">⏳</div>
+        <div><div class="stat-val" style="${pendingCount > 0 ? 'color:var(--warning)' : ''}">${pendingCount}</div><div class="stat-lbl">Chờ chấm</div></div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-icon si-gray">✅</div>
+        <div><div class="stat-val" style="color:var(--success)">${gradedCount}</div><div class="stat-lbl">Đã chấm</div></div>
+      </div>
+    </div>
+
+    <div class="grid-auto">
+      ${groups.map(g => {
+        const p = products.find(prod => prod.groupId === g.id);
+        const leader = DB.findUserById(g.leaderId);
+        const grade = DB.gradeByGroup(g.id);
+
+        return `
+          <div class="card">
+            <div class="card-header">
+              <div>
+                <div class="card-title">${g.name}</div>
+                <div class="card-subtitle">NT: ${leader?.name || '—'} · ${g.members.length} SV</div>
+              </div>
+              <div>
+                ${p ? (
+                  p.grade != null ?
+                    `<span class="badge badge-success">✅ ${p.grade}/10</span>` :
+                    '<span class="badge badge-warning">⏳ Chờ chấm</span>'
+                ) : '<span class="badge badge-danger">Chưa nộp</span>'}
+              </div>
+            </div>
+
+            <div class="text-xs text-muted mb-1">Đề tài:</div>
+            <div class="font-bold text-sm mb-2">${g.project}</div>
+
+            ${p ? `
+              <div style="background:var(--gray-50);padding:10px;border-radius:var(--radius-sm);margin-bottom:12px">
+                <div class="font-semibold text-xs mb-1">${p.name}</div>
+                <p class="text-xs text-secondary mb-2" style="max-height:55px;overflow:hidden;line-height:1.5">${p.description}</p>
+                <div class="flex gap-2 flex-wrap">
+                  ${p.github ? `<a href="${p.github}" target="_blank" class="chip">🔗 GitHub</a>` : ''}
+                  ${p.demo ? `<a href="${p.demo}" target="_blank" class="chip">🌐 Live Demo</a>` : ''}
+                  ${p.video ? `<a href="${p.video}" target="_blank" class="chip">▶️ Video</a>` : ''}
+                </div>
+                ${p.files ? `<div class="text-xs text-muted mt-2">📎 ${p.files}</div>` : ''}
+              </div>
+              <div class="text-xs text-muted mb-3">Nộp lúc: ${fmtDateTime(p.submittedAt)}</div>
+              <button class="btn ${p.grade != null ? 'btn-secondary' : 'btn-primary'} btn-sm w-full"
+                onclick="openGradeModal('${p.id}', '${g.id}')">
+                ${p.grade != null ? '✏️ Cập nhật điểm' : '✍️ Chấm điểm sản phẩm'}
+              </button>
+            ` : `
+              <div class="empty" style="padding:24px 0">
+                <div class="empty-icon" style="font-size:28px">📭</div>
+                <p class="text-xs">Nhóm chưa nộp sản phẩm</p>
+              </div>
+            `}
+          </div>
+        `;
+      }).join('')}
+    </div>
+  `;
+}
+
+/* ═════ SINH VIÊN / NHÓM TRƯỞNG ═════ */
+function renderGroup(el) {
+  const group = DB.groupOfUser(user.id);
+  if (!group) {
+    el.innerHTML = '<div class="empty" style="padding:60px"><div class="empty-icon">👥</div><h3>Chưa có nhóm</h3></div>';
+    return;
+  }
+
+  const isNT = user.role === 'nhomt' || group.leaderId === user.id;
+  const p = DB.products().find(prod => prod.groupId === group.id);
+  const deadline = '2026-12-15';
+  const cls = DB.findClass(group.classId);
+
+  el.innerHTML = `
+    <div class="page-header-row">
+      <div>
+        <h1>📦 Sản phẩm cuối kỳ – ${group.name}</h1>
+        <p class="page-desc">${cls ? cls.name + ' · ' : ''}Hạn nộp sản phẩm & nghiệm thu: ${fmtDate(deadline)}</p>
+      </div>
+      ${isNT && !p ? `
+        <button class="btn btn-primary" onclick="openProductModal()">📤 Nộp sản phẩm ngay</button>
+      ` : ''}
+    </div>
+
+    <!-- Status Banner -->
+    <div class="card" style="margin-bottom:20px;background:var(--gray-50);border-color:${p ? 'var(--gray-900)' : 'var(--border)'}">
+      <div class="flex items-center justify-between flex-wrap gap-3">
+        <div class="flex items-center gap-3">
+          <div style="font-size:32px">${p ? '✅' : '📭'}</div>
+          <div>
+            <div class="font-bold text-base">${p ? 'Đã nộp sản phẩm cuối kỳ' : 'Chưa nộp sản phẩm'}</div>
+            <div class="text-xs text-muted">
+              ${p ? 'Nộp vào: ' + fmtDateTime(p.submittedAt) : 'Vui lòng hoàn thiện sản phẩm và nộp trước ngày ' + fmtDate(deadline)}
+            </div>
+          </div>
+        </div>
+        <div>
+          ${p ? (
+            p.grade != null ? `
+              <div style="text-align:right">
+                <div class="text-xs text-muted">Điểm đánh giá cuối kỳ</div>
+                <div class="font-black ${scoreClass(p.grade)}" style="font-size:28px">${p.grade} <span style="font-size:16px">/ 10</span></div>
+              </div>
+            ` : '<span class="badge badge-warning" style="font-size:12px;padding:6px 12px">⏳ Đang chờ giảng viên chấm</span>'
+          ) : ''}
+        </div>
+      </div>
+    </div>
+
+    ${p ? `
+      <div class="grid-2">
+        <div class="card">
+          <div class="card-header">
+            <div class="card-title">📋 Thông tin sản phẩm</div>
+            ${isNT ? `<button class="btn btn-secondary btn-sm" onclick="openProductModal('${p.id}')">✏️ Cập nhật</button>` : ''}
+          </div>
+          <div style="font-size:16px;font-weight:800;margin-bottom:8px">${p.name}</div>
+          <p style="font-size:13px;color:var(--text-secondary);line-height:1.7;margin-bottom:16px;white-space:pre-wrap">${p.description}</p>
+
+          <div class="card-label">LIÊN KẾT DỰ ÁN</div>
+          <div class="flex gap-2 flex-wrap mb-3">
+            ${p.github ? `<a href="${p.github}" target="_blank" class="btn btn-secondary btn-sm">🔗 GitHub / Source Code</a>` : ''}
+            ${p.demo ? `<a href="${p.demo}" target="_blank" class="btn btn-secondary btn-sm">🌐 Trực tiếp Demo</a>` : ''}
+            ${p.video ? `<a href="${p.video}" target="_blank" class="btn btn-secondary btn-sm">▶️ Video Thuyết trình</a>` : ''}
+          </div>
+
+          ${p.files ? `
+            <div class="card-label mt-3">FILE BÁO CÁO TỔNG KẾT</div>
+            <div class="chip" style="font-size:12px;padding:6px 12px">📎 ${p.files}</div>
+          ` : ''}
+        </div>
+
+        <div style="display:flex;flex-direction:column;gap:16px">
+          ${p.grade != null ? `
+            <div class="card" style="background:var(--success-bg);border-color:#bbf7d0">
+              <div class="card-header">
+                <div class="card-title">🏆 Kết quả chấm điểm cuối kỳ</div>
+                <span class="font-black ${scoreClass(p.grade)}" style="font-size:22px">${p.grade}/10</span>
+              </div>
+              <p style="font-size:13px;color:var(--text-secondary);line-height:1.7;margin-top:6px">${p.feedback || 'Không có nhận xét thêm.'}</p>
+              <div class="text-xs text-muted mt-2">Chấm lúc: ${fmtDateTime(p.gradedAt)}</div>
+            </div>
+          ` : ''}
+
+          <div class="card">
+            <div class="card-label">THÔNG TIN NỘP</div>
+            <div style="font-size:13px;line-height:2">
+              <div class="flex justify-between">
+                <span class="text-muted">Người nộp:</span>
+                <strong>${DB.findUserById(p.submittedBy)?.name || '—'}</strong>
+              </div>
+              <div class="flex justify-between">
+                <span class="text-muted">Thời gian:</span>
+                <strong>${fmtDateTime(p.submittedAt)}</strong>
+              </div>
+              ${p.selfScore != null ? `
+                <div class="flex justify-between">
+                  <span class="text-muted">Nhóm tự đánh giá:</span>
+                  <strong>${p.selfScore}/10</strong>
+                </div>
+              ` : ''}
+            </div>
+          </div>
+        </div>
+      </div>
+    ` : `
+      <div class="card" style="text-align:center;padding:60px">
+        <div style="font-size:48px;margin-bottom:12px;opacity:0.6">📦</div>
+        <h3 style="font-size:16px;margin-bottom:6px">Chưa nộp sản phẩm cuối kỳ</h3>
+        <p class="text-secondary text-sm mb-4">
+          Nhóm trưởng cần điền thông tin hệ thống, link GitHub, link Demo và tài liệu nghiệm thu trước hạn.
+        </p>
+        ${isNT ? `
+          <button class="btn btn-primary" onclick="openProductModal()">📤 Nộp sản phẩm cuối kỳ ngay</button>
+        ` : `
+          <p class="text-xs text-muted">Vui lòng nhắc nhóm trưởng thực hiện việc nộp sản phẩm</p>
+        `}
+      </div>
+    `}
+  `;
+}
+
+// ── Modals ──
+window.openProductModal = function(id = '') {
+  const p = id ? DB.products().find(prod => prod.id === id) : null;
+  const group = DB.groupOfUser(user.id);
+
+  document.getElementById('m-prod-title').textContent = p ? '✏️ Cập nhật sản phẩm cuối kỳ' : '📦 Nộp sản phẩm cuối kỳ';
+  document.getElementById('prod-id').value = id;
+  document.getElementById('prod-name').value = p?.name || group?.project || '';
+  document.getElementById('prod-desc').value = p?.description || group?.description || '';
+  document.getElementById('prod-github').value = p?.github || '';
+  document.getElementById('prod-demo').value = p?.demo || '';
+  document.getElementById('prod-video').value = p?.video || '';
+  document.getElementById('prod-self').value = p?.selfScore ?? '';
+  document.getElementById('prod-files').value = p?.files || '';
+
+  openModal('m-product');
+};
+
+window.saveProduct = function(e) {
+  e.preventDefault();
+  const id = document.getElementById('prod-id').value;
+  const name = document.getElementById('prod-name').value.trim();
+  const desc = document.getElementById('prod-desc').value.trim();
+  const github = document.getElementById('prod-github').value.trim();
+  const demo = document.getElementById('prod-demo').value.trim();
+  const video = document.getElementById('prod-video').value.trim();
+  const selfScore = parseFloat(document.getElementById('prod-self').value) || null;
+  const files = document.getElementById('prod-files').value.trim();
+  const group = DB.groupOfUser(user.id);
+
+  if (!name || !desc) { showToast('Vui lòng nhập tên và mô tả sản phẩm!', 'error'); return; }
+
+  const obj = {
+    name, description: desc, github, demo, video, selfScore, files,
+    submittedBy: user.id, submittedAt: new Date().toISOString()
+  };
+
+  if (id) {
+    DB.updateProduct({ id, ...obj });
+    showToast('✅ Đã cập nhật thông tin sản phẩm!', 'success');
+  } else {
+    DB.addProduct({ id: uid(), groupId: group.id, ...obj, grade: null, feedback: null, gradedAt: null });
+    showToast('✅ Đã nộp sản phẩm cuối kỳ thành công!', 'success');
+  }
+
+  closeModal('m-product');
+  render();
+};
+
+window.openGradeModal = function(pid, gid) {
+  const p = DB.products().find(prod => prod.id === pid);
+  const g = DB.findGroup(gid);
+
+  document.getElementById('m-gp-title').textContent = `✍️ Chấm điểm – ${g?.name}`;
+  document.getElementById('gp-pid').value = pid;
+  document.getElementById('gp-gid').value = gid;
+  document.getElementById('gp-score').value = p?.grade ?? '';
+  document.getElementById('gp-self-view').value = p?.selfScore != null ? p.selfScore + '/10' : 'Chưa tự đánh giá';
+  document.getElementById('gp-fb').value = p?.feedback ?? '';
+
+  document.getElementById('m-gp-preview').innerHTML = `
+    <div class="card card-sm" style="background:var(--gray-50)">
+      <div class="font-bold text-sm mb-1">${p?.name}</div>
+      <div class="text-xs text-secondary mb-2">${p?.description}</div>
+      <div class="flex gap-2 flex-wrap">
+        ${p?.github ? `<a href="${p.github}" target="_blank" class="chip">🔗 GitHub</a>` : ''}
+        ${p?.demo ? `<a href="${p.demo}" target="_blank" class="chip">🌐 Live Demo</a>` : ''}
+        ${p?.video ? `<a href="${p.video}" target="_blank" class="chip">▶️ Video</a>` : ''}
+      </div>
+      ${p?.files ? `<div class="text-xs text-muted mt-2">📎 ${p.files}</div>` : ''}
+    </div>
+  `;
+
+  openModal('m-grade-prod');
+};
+
+window.saveProductGrade = function(e) {
+  e.preventDefault();
+  const pid = document.getElementById('gp-pid').value;
+  const gid = document.getElementById('gp-gid').value;
+  const score = parseFloat(document.getElementById('gp-score').value);
+  const fb = document.getElementById('gp-fb').value.trim();
+
+  if (isNaN(score) || score < 0 || score > 10) { showToast('Điểm phải từ 0 đến 10!', 'error'); return; }
+  if (!fb) { showToast('Vui lòng nhập nhận xét!', 'error'); return; }
+
+  DB.updateProduct({ id: pid, grade: score, feedback: fb, gradedAt: new Date().toISOString() });
+
+  // Update finalScore and recalculate totalScore in grades table
+  const curGrade = DB.gradeByGroup(gid) || {};
+  const proc = curGrade.processScore || 0;
+  const mid = curGrade.midtermScore || 0;
+  const total = parseFloat((proc * 0.3 + mid * 0.2 + score * 0.5).toFixed(2));
+  DB.setGrade({ ...curGrade, groupId: gid, finalScore: score, totalScore: total, gradedBy: user.id, gradedAt: new Date().toISOString() });
+
+  showToast('✅ Đã lưu điểm cuối kỳ và cập nhật tổng kết!', 'success');
+  closeModal('m-grade-prod');
+  render();
+};
+
+render();
+</script>
+</body>
+</html>

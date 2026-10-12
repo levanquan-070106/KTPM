@@ -1,0 +1,133 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head><meta charset="UTF-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/><title>Nhóm dự án – KTPMUD</title><link rel="stylesheet" href="style.css"/></head>
+<body>
+<div id="app"></div>
+<div id="toast-stack" class="toast-stack"></div>
+
+<!-- Modal thêm/sửa nhóm -->
+<div class="modal-overlay" id="m-group">
+  <div class="modal modal-lg">
+    <div class="modal-header"><div class="modal-title" id="m-group-title">➕ Thêm nhóm</div><button class="modal-close" onclick="closeModal('m-group')">✕</button></div>
+    <form onsubmit="saveGroup(event)">
+      <input type="hidden" id="g-id"/>
+      <div class="form-row">
+        <div class="form-group"><label class="form-label">Tên nhóm <span class="form-required">*</span></label><input id="g-name" class="form-control" placeholder="Nhóm 01"/></div>
+        <div class="form-group"><label class="form-label">Lớp học <span class="form-required">*</span></label><select id="g-class" class="form-control"></select></div>
+      </div>
+      <div class="form-group"><label class="form-label">Tên dự án <span class="form-required">*</span></label><input id="g-project" class="form-control" placeholder="Tên dự án..."/></div>
+      <div class="form-row">
+        <div class="form-group"><label class="form-label">Công nghệ</label><input id="g-tech" class="form-control" placeholder="React, Node.js..."/></div>
+        <div class="form-group"><label class="form-label">Nhóm trưởng</label><select id="g-leader" class="form-control"><option value="">-- Chọn NT --</option></select></div>
+      </div>
+      <div class="form-group"><label class="form-label">Mô tả dự án</label><textarea id="g-desc" class="form-control" rows="3" placeholder="Mô tả ngắn..."></textarea></div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" onclick="closeModal('m-group')">Hủy</button>
+        <button type="submit" class="btn btn-primary">💾 Lưu</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<script src="data.js"></script><script src="layout.js"></script>
+<script>
+const user = initPage('Nhóm dự án', 'groups');
+if (user.role !== 'giaovien') navigate('dashboard.html');
+
+function render() {
+  const el = document.getElementById('page-content');
+  const cid = DB.curClassId();
+  const myClasses = DB.classes().filter(c=>c.lecturerId===user.id);
+  const groups = cid ? DB.groupsByClass(cid) : DB.groups().filter(g=>myClasses.some(c=>c.id===g.classId));
+  const reports = DB.reports();
+  const week = currentWeek();
+
+  el.innerHTML = `
+    <div class="page-header-row">
+      <div><h1>👥 Nhóm dự án</h1><p class="page-desc">${groups.length} nhóm${cid?' · '+DB.findClass(cid)?.name:''}</p></div>
+      <button class="btn btn-primary" onclick="openGroupModal()">➕ Thêm nhóm</button>
+    </div>
+    <div class="stat-grid" style="grid-template-columns:repeat(4,1fr);margin-bottom:20px">
+      <div class="stat-card"><div class="stat-icon si-black">👥</div><div><div class="stat-val">${groups.length}</div><div class="stat-lbl">Tổng nhóm</div></div></div>
+      <div class="stat-card"><div class="stat-icon si-gray">🎓</div><div><div class="stat-val">${groups.reduce((s,g)=>s+g.members.length,0)}</div><div class="stat-lbl">Sinh viên</div></div></div>
+      <div class="stat-card"><div class="stat-icon si-gray">📋</div><div><div class="stat-val">${reports.filter(r=>groups.some(g=>g.id===r.groupId)&&r.status==='submitted').length}</div><div class="stat-lbl">BC chờ chấm</div></div></div>
+      <div class="stat-card"><div class="stat-icon si-white">🏆</div><div><div class="stat-val">${groups.filter(g=>DB.gradeByGroup(g.id)?.totalScore!=null).length}</div><div class="stat-lbl">Đã có điểm</div></div></div>
+    </div>
+    ${groups.length===0?'<div class="empty" style="padding:60px"><div class="empty-icon">👥</div><h3>Chưa có nhóm</h3><p>Hãy thêm nhóm đầu tiên</p></div>':
+    `<div class="grid-auto">
+      ${groups.map(g=>{
+        const leader=DB.findUserById(g.leaderId);
+        const members=g.members.map(id=>DB.findUserById(id)).filter(Boolean);
+        const gReps=reports.filter(r=>r.groupId===g.id);
+        const submitted=gReps.filter(r=>r.status!=='draft').length;
+        const pending=gReps.filter(r=>r.status==='submitted').length;
+        const grade=DB.gradeByGroup(g.id);
+        const prog=Math.min(100,Math.round(submitted/week*100));
+        const cls=DB.findClass(g.classId);
+        return `<div class="card" style="cursor:pointer" onmouseover="this.style.boxShadow='var(--shadow)'" onmouseout="this.style.boxShadow='none'">
+          <div class="card-header">
+            <div><div class="card-title">${g.name}</div><div class="card-subtitle">${cls?.name||''}</div></div>
+            <div class="flex gap-1">
+              ${pending>0?`<span class="badge badge-warning">${pending} chờ</span>`:''}
+              ${grade?.totalScore!=null?`<span class="font-black ${scoreClass(grade.totalScore)}">${grade.totalScore}</span>`:''}
+            </div>
+          </div>
+          <div class="text-sm font-semibold mb-1 truncate">${g.project}</div>
+          <div class="chip mb-3" style="font-size:11px">⚙️ ${g.tech}</div>
+          <div class="flex gap-1 mb-3">
+            ${members.slice(0,4).map(m=>`<div class="avatar" title="${m.name}" style="width:28px;height:28px;font-size:10px;background:${avatarBg(m.name)}">${getInitials(m.name)}</div>`).join('')}
+            ${members.length>4?`<div class="avatar" style="width:28px;height:28px;font-size:10px;background:var(--gray-400)">+${members.length-4}</div>`:''}
+          </div>
+          <div class="flex items-center justify-between text-xs text-muted mb-1"><span>Tiến độ nộp BC</span><span>${submitted}/${week}</span></div>
+          <div class="progress mb-3"><div class="progress-bar" style="width:${prog}%"></div></div>
+          <div class="flex gap-2">
+            <button class="btn btn-ghost btn-sm" style="flex:1" onclick="openGroupModal('${g.id}')">✏️ Sửa</button>
+            <button class="btn btn-primary btn-sm" style="flex:1" onclick="navigate('reports.html')">📋 BC</button>
+            <button class="btn btn-danger btn-sm btn-icon-sm" onclick="delGroup('${g.id}')">🗑️</button>
+          </div>
+        </div>`;
+      }).join('')}
+    </div>`}`;
+}
+
+window.openGroupModal = function(id='') {
+  const g = id ? DB.findGroup(id) : null;
+  document.getElementById('m-group-title').textContent = g ? '✏️ Sửa nhóm' : '➕ Thêm nhóm mới';
+  document.getElementById('g-id').value = id;
+  document.getElementById('g-name').value = g?.name||'';
+  document.getElementById('g-project').value = g?.project||'';
+  document.getElementById('g-tech').value = g?.tech||'';
+  document.getElementById('g-desc').value = g?.description||'';
+
+  const cls = DB.classes().filter(c=>c.lecturerId===user.id);
+  const cSel = document.getElementById('g-class');
+  cSel.innerHTML = cls.map(c=>`<option value="${c.id}" ${g?.classId===c.id||DB.curClassId()===c.id?'selected':''}>${c.name}</option>`).join('');
+
+  const students = DB.users().filter(u=>u.role==='nhomt'||u.role==='sinhvien');
+  const lSel = document.getElementById('g-leader');
+  lSel.innerHTML = '<option value="">-- Chọn NT --</option>'+students.map(u=>`<option value="${u.id}" ${g?.leaderId===u.id?'selected':''}>${u.name}</option>`).join('');
+  openModal('m-group');
+};
+
+window.saveGroup = function(e) {
+  e.preventDefault();
+  const id = document.getElementById('g-id').value;
+  const name = document.getElementById('g-name').value.trim();
+  const classId = document.getElementById('g-class').value;
+  const project = document.getElementById('g-project').value.trim();
+  const leaderId = document.getElementById('g-leader').value;
+  if (!name||!classId||!project) { showToast('Vui lòng điền đầy đủ!','error'); return; }
+  const obj = { name, classId, project, tech:document.getElementById('g-tech').value.trim(), description:document.getElementById('g-desc').value.trim(), leaderId, members:leaderId?[leaderId]:[] };
+  if (id) { DB.updateGroup({id,...obj}); showToast('✅ Đã cập nhật nhóm!','success'); }
+  else { DB.addGroup({id:uid(),...obj,createdAt:new Date().toISOString()}); showToast('✅ Đã thêm nhóm!','success'); }
+  closeModal('m-group'); render();
+};
+
+window.delGroup = function(id) {
+  if(!confirm('Xóa nhóm này? Toàn bộ báo cáo và công việc sẽ bị xóa!')) return;
+  DB.deleteGroup(id); showToast('✅ Đã xóa nhóm!','success'); render();
+};
+
+render();
+</script>
+</body></html>

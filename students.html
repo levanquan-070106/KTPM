@@ -1,0 +1,299 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+  <meta charset="UTF-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/>
+  <title>Danh sách sinh viên – KTPMUD</title>
+  <link rel="stylesheet" href="style.css"/>
+</head>
+<body>
+<div id="app"></div>
+<div id="toast-stack" class="toast-stack"></div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<script src="data.js"></script>
+<script src="layout.js"></script>
+<script>
+const user = initPage('Sinh viên', 'students');
+if (user.role !== 'giaovien') navigate('dashboard.html');
+
+let searchText = '';
+let filterGroupId = 'all';
+
+function render() {
+  const el = document.getElementById('page-content');
+  const cid = DB.curClassId();
+  const cls = cid ? DB.findClass(cid) : null;
+  const myClasses = DB.classes().filter(c => c.lecturerId === user.id);
+  const groups = cid ? DB.groupsByClass(cid) : DB.groups().filter(g => myClasses.some(c => c.id === g.classId));
+  const reports = DB.reports();
+  const tasks = DB.tasks();
+
+  // Get all students across these groups
+  let students = [];
+  groups.forEach(g => {
+    const c = DB.findClass(g.classId);
+    g.members.forEach(mid => {
+      const u = DB.findUserById(mid);
+      if (u) {
+        students.push({ user: u, group: g, classroom: c });
+      }
+    });
+  });
+
+  // Filter
+  if (filterGroupId !== 'all') {
+    students = students.filter(s => s.group.id === filterGroupId);
+  }
+  if (searchText) {
+    const q = searchText.toLowerCase();
+    students = students.filter(s =>
+      s.user.name.toLowerCase().includes(q) ||
+      s.user.email.toLowerCase().includes(q) ||
+      s.group.name.toLowerCase().includes(q)
+    );
+  }
+
+  const totalSV = students.length;
+  const totalNT = students.filter(s => s.user.role === 'nhomt').length;
+
+  el.innerHTML = `
+    <div class="page-header-row">
+      <div>
+        <h1>🎓 Danh sách sinh viên</h1>
+        <p class="page-desc">${cls ? cls.name + ' · ' : ''}${totalSV} sinh viên trong ${groups.length} nhóm dự án</p>
+      </div>
+      <div class="flex gap-2">
+        <button class="btn btn-primary" onclick="exportStudentExcel()">📥 Xuất Excel (.xlsx)</button>
+      </div>
+    </div>
+
+    <div class="stat-grid" style="grid-template-columns:repeat(4,1fr);margin-bottom:20px">
+      <div class="stat-card">
+        <div class="stat-icon si-black">🎓</div>
+        <div><div class="stat-val">${totalSV}</div><div class="stat-lbl">Sinh viên</div></div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-icon si-gray">👑</div>
+        <div><div class="stat-val">${totalNT}</div><div class="stat-lbl">Nhóm trưởng</div></div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-icon si-gray">👥</div>
+        <div><div class="stat-val">${groups.length}</div><div class="stat-lbl">Nhóm dự án</div></div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-icon si-white">📋</div>
+        <div><div class="stat-val">${tasks.filter(t => groups.some(g => g.id === t.groupId) && t.status === 'done').length}</div><div class="stat-lbl">Task hoàn thành</div></div>
+      </div>
+    </div>
+
+    <div class="card" style="margin-bottom:16px">
+      <div class="flex items-center gap-3 flex-wrap">
+        <div style="flex:1;min-width:200px">
+          <input class="form-control" id="search-input" placeholder="🔍 Tìm theo tên, email hoặc nhóm..."
+            value="${searchText}" oninput="handleSearch(this.value)"/>
+        </div>
+        <select class="form-control" id="group-filter" style="width:200px" onchange="handleGroupFilter(this.value)">
+          <option value="all">Tất cả các nhóm</option>
+          ${groups.map(g => `<option value="${g.id}" ${filterGroupId === g.id ? 'selected' : ''}>${g.name}</option>`).join('')}
+        </select>
+      </div>
+    </div>
+
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th>#</th>
+            <th>Sinh viên</th>
+            <th>Email</th>
+            <th>Vai trò</th>
+            <th>Nhóm</th>
+            <th>Lớp</th>
+            <th>Công việc (Kanban)</th>
+            <th>Tiến độ cá nhân</th>
+            <th>Điểm tổng kết</th>
+            <th>Thao tác</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${students.length === 0 ? `
+            <tr><td colspan="10"><div class="empty"><div class="empty-icon">🎓</div><p>Không tìm thấy sinh viên nào</p></div></td></tr>
+          ` : students.map((s, idx) => {
+            const uTasks = tasks.filter(t => t.assignee === s.user.id);
+            const doneTasks = uTasks.filter(t => t.status === 'done').length;
+            const pct = uTasks.length > 0 ? Math.round((doneTasks / uTasks.length) * 100) : 0;
+            const grade = DB.gradeByGroup(s.group.id);
+
+            return `<tr>
+              <td class="text-muted">${idx + 1}</td>
+              <td>
+                <div class="flex items-center gap-2">
+                  <div class="avatar" style="width:28px;height:28px;font-size:10px;background:${avatarBg(s.user.name)}">${getInitials(s.user.name)}</div>
+                  <span class="font-semibold text-sm">${s.user.name}</span>
+                </div>
+              </td>
+              <td class="td-muted">${s.user.email}</td>
+              <td>${s.user.role === 'nhomt' ? '<span class="badge badge-gray font-bold">NT</span>' : '<span class="badge badge-outline">SV</span>'}</td>
+              <td><span class="chip font-semibold">${s.group.name}</span></td>
+              <td class="text-xs text-secondary">${s.classroom?.name || '—'}</td>
+              <td>
+                <span class="font-bold text-success">${doneTasks}</span><span class="text-muted">/${uTasks.length} task</span>
+              </td>
+              <td style="min-width:130px">
+                <div class="flex items-center gap-2">
+                  <div class="progress" style="flex:1">
+                    <div class="progress-bar ${pct >= 70 ? 'green' : pct >= 40 ? 'yellow' : 'red'}" style="width:${pct}%"></div>
+                  </div>
+                  <span class="text-xs font-semibold">${pct}%</span>
+                </div>
+              </td>
+              <td>
+                ${grade?.totalScore != null ? `
+                  <span class="font-bold ${scoreClass(grade.totalScore)}">${grade.totalScore} <span class="text-xs">(${gradeLetterFromScore(grade.totalScore)})</span></span>
+                ` : '<span class="text-muted">—</span>'}
+              </td>
+              <td>
+                <button class="btn btn-ghost btn-sm" onclick="viewStudentContrib('${s.user.id}')" title="Xem chi tiết đóng góp">📊</button>
+              </td>
+            </tr>`;
+          }).join('')}
+        </tbody>
+      </table>
+    </div>
+  `;
+
+  document.getElementById('search-input').oninput = e => { searchText = e.target.value; render(); };
+  document.getElementById('group-filter').onchange = e => { filterGroupId = e.target.value; render(); };
+}
+
+window.handleSearch = function(val) { searchText = val; render(); };
+window.handleGroupFilter = function(val) { filterGroupId = val; render(); };
+
+// Export Student List to Excel (.xlsx)
+window.exportStudentExcel = function() {
+  const cid = DB.curClassId();
+  const cls = cid ? DB.findClass(cid) : null;
+  const myClasses = DB.classes().filter(c => c.lecturerId === user.id);
+  const groups = cid ? DB.groupsByClass(cid) : DB.groups().filter(g => myClasses.some(c => c.id === g.classId));
+  const tasks = DB.tasks();
+
+  const data = [];
+  let idx = 0;
+  groups.forEach(g => {
+    const c = DB.findClass(g.classId);
+    const grade = DB.gradeByGroup(g.id);
+    g.members.forEach(mid => {
+      const u = DB.findUserById(mid);
+      if (!u) return;
+      idx++;
+      const uTasks = tasks.filter(t => t.assignee === u.id);
+      const doneTasks = uTasks.filter(t => t.status === 'done').length;
+      const pct = uTasks.length > 0 ? Math.round((doneTasks / uTasks.length) * 100) : 0;
+
+      data.push({
+        'STT': idx,
+        'Họ và tên': u.name,
+        'Email': u.email,
+        'Vai trò': u.role === 'nhomt' ? 'Nhóm trưởng' : 'Sinh viên',
+        'Lớp học': c?.name || '',
+        'Nhóm dự án': g.name,
+        'Tên dự án': g.project,
+        'Số task hoàn thành': doneTasks,
+        'Tổng số task được giao': uTasks.length,
+        'Tiến độ hoàn thành (%)': pct + '%',
+        'Điểm quá trình (30%)': grade?.processScore ?? '',
+        'Điểm giữa kỳ (20%)': grade?.midtermScore ?? '',
+        'Điểm cuối kỳ (50%)': grade?.finalScore ?? '',
+        'Điểm tổng kết': grade?.totalScore ?? '',
+        'Xếp loại': grade?.totalScore != null ? gradeLetterFromScore(grade.totalScore) : '',
+      });
+    });
+  });
+
+  const wb = XLSX.utils.book_new();
+  const ws = XLSX.utils.json_to_sheet(data);
+  ws['!cols'] = Object.keys(data[0] || {}).map(h => ({ wch: Math.max(h.length + 3, 14) }));
+  XLSX.utils.book_append_sheet(wb, ws, 'Danh sách sinh viên');
+
+  const fileName = `DanhSachSinhVien_${(cls?.name || 'TatCaLop').replace(/[\\/:*?"<>|]/g, '_')}_${new Date().toISOString().split('T')[0]}.xlsx`;
+  XLSX.writeFile(wb, fileName);
+  showToast('✅ Đã xuất danh sách sinh viên ra Excel!', 'success');
+};
+
+// Modal xem chi tiết đóng góp của sinh viên (FR-09)
+window.viewStudentContrib = function(uid) {
+  const u = DB.findUserById(uid);
+  if (!u) return;
+  const group = DB.groupOfUser(uid);
+  const tasks = DB.tasks().filter(t => t.assignee === uid);
+  const done = tasks.filter(t => t.status === 'done').length;
+  const doing = tasks.filter(t => t.status === 'doing').length;
+  const review = tasks.filter(t => t.status === 'review').length;
+  const todo = tasks.filter(t => t.status === 'todo').length;
+  const pct = tasks.length > 0 ? Math.round((done / tasks.length) * 100) : 0;
+
+  const html = `
+    <div class="modal-overlay open" id="m-contrib" onclick="if(event.target===this)this.remove()">
+      <div class="modal modal-md">
+        <div class="modal-header">
+          <div class="modal-title">📊 Báo cáo đóng góp: ${u.name}</div>
+          <button class="modal-close" onclick="document.getElementById('m-contrib').remove()">✕</button>
+        </div>
+        <div class="flex items-center gap-3 mb-3">
+          <div class="avatar" style="width:40px;height:40px;font-size:14px;background:${avatarBg(u.name)}">${getInitials(u.name)}</div>
+          <div>
+            <div class="font-bold text-base">${u.name}</div>
+            <div class="text-xs text-muted">${u.email} · ${group ? group.name + ' (' + group.project + ')' : 'Chưa có nhóm'}</div>
+          </div>
+        </div>
+
+        <div class="card card-sm mb-3" style="background:var(--gray-50)">
+          <div class="flex items-center justify-between mb-2">
+            <span class="text-xs font-semibold">Tỉ lệ hoàn thành công việc</span>
+            <span class="text-xs font-bold">${done}/${tasks.length} task (${pct}%)</span>
+          </div>
+          <div class="progress"><div class="progress-bar ${pct >= 70 ? 'green' : pct >= 40 ? 'yellow' : 'red'}" style="width:${pct}%"></div></div>
+        </div>
+
+        <div class="grid-2 mb-3">
+          <div style="padding:10px;background:var(--gray-50);border-radius:6px;text-align:center">
+            <div class="text-xs text-muted">Todo</div><div class="font-bold text-lg">${todo}</div>
+          </div>
+          <div style="padding:10px;background:var(--gray-50);border-radius:6px;text-align:center">
+            <div class="text-xs text-muted">Doing</div><div class="font-bold text-lg" style="color:var(--info)">${doing}</div>
+          </div>
+          <div style="padding:10px;background:var(--gray-50);border-radius:6px;text-align:center">
+            <div class="text-xs text-muted">Review</div><div class="font-bold text-lg" style="color:var(--warning)">${review}</div>
+          </div>
+          <div style="padding:10px;background:var(--gray-50);border-radius:6px;text-align:center">
+            <div class="text-xs text-muted">Done</div><div class="font-bold text-lg" style="color:var(--success)">${done}</div>
+          </div>
+        </div>
+
+        <div class="card-label">DANH SÁCH NHIỆM VỤ ĐƯỢC GIAO</div>
+        <div style="max-height:220px;overflow-y:auto">
+          ${tasks.length === 0 ? '<div class="text-xs text-muted text-center py-3">Chưa có nhiệm vụ nào</div>' :
+            tasks.map(t => `
+              <div style="padding:8px 0;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between">
+                <div>
+                  <div class="text-xs font-semibold">${t.title}</div>
+                  <div class="text-xs text-muted">Hạn: ${fmtDate(t.deadline)}</div>
+                </div>
+                <span class="badge ${t.status === 'done' ? 'badge-success' : t.status === 'doing' ? 'badge-info' : t.status === 'review' ? 'badge-warning' : 'badge-gray'}">${t.status}</span>
+              </div>
+            `).join('')}
+        </div>
+
+        <div class="modal-footer" style="margin-top:14px;padding-top:10px">
+          <button class="btn btn-secondary btn-sm" onclick="document.getElementById('m-contrib').remove()">Đóng</button>
+        </div>
+      </div>
+    </div>
+  `;
+  document.body.insertAdjacentHTML('beforeend', html);
+};
+
+render();
+</script>
+</body>
+</html>

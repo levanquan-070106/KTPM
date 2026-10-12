@@ -1,0 +1,240 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+  <meta charset="UTF-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/>
+  <title>Nhóm của tôi – KTPMUD</title>
+  <link rel="stylesheet" href="style.css"/>
+</head>
+<body>
+<div id="app"></div>
+<div id="toast-stack" class="toast-stack"></div>
+
+<!-- Modal sửa thông tin dự án (chỉ Nhóm trưởng) -->
+<div class="modal-overlay" id="m-edit-proj">
+  <div class="modal modal-md">
+    <div class="modal-header">
+      <div class="modal-title">✏️ Cập nhật thông tin dự án</div>
+      <button class="modal-close" onclick="closeModal('m-edit-proj')">✕</button>
+    </div>
+    <form onsubmit="saveProjectInfo(event)">
+      <div class="form-group">
+        <label class="form-label">Tên dự án <span class="form-required">*</span></label>
+        <input id="p-name" class="form-control" required/>
+      </div>
+      <div class="form-group">
+        <label class="form-label">Công nghệ sử dụng</label>
+        <input id="p-tech" class="form-control"/>
+      </div>
+      <div class="form-group">
+        <label class="form-label">Mô tả dự án</label>
+        <textarea id="p-desc" class="form-control" rows="4"></textarea>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" onclick="closeModal('m-edit-proj')">Hủy</button>
+        <button type="submit" class="btn btn-primary">💾 Lưu thông tin</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<script src="data.js"></script>
+<script src="layout.js"></script>
+<script>
+const user = initPage('Nhóm của tôi', 'mygroup');
+
+function render() {
+  const el = document.getElementById('page-content');
+  const group = DB.groupOfUser(user.id);
+
+  if (!group) {
+    el.innerHTML = `
+      <div class="empty" style="padding:60px">
+        <div class="empty-icon">👥</div>
+        <h3>Bạn chưa được phân vào nhóm nào</h3>
+        <p>Vui lòng liên hệ giảng viên hướng dẫn để được đưa vào danh sách nhóm của lớp</p>
+      </div>
+    `;
+    return;
+  }
+
+  const cls = DB.findClass(group.classId);
+  const lecturer = cls ? DB.findUserById(cls.lecturerId) : null;
+  const leader = DB.findUserById(group.leaderId);
+  const members = group.members.map(id => DB.findUserById(id)).filter(Boolean);
+  const reports = DB.reportsByGroup(group.id);
+  const tasks = DB.tasksByGroup(group.id);
+  const week = currentWeek();
+  const isNT = user.role === 'nhomt' || group.leaderId === user.id;
+
+  const submittedReports = reports.filter(r => r.status !== 'draft').length;
+  const gradedReports = reports.filter(r => r.status === 'graded');
+  const avgReportScore = gradedReports.length > 0 ?
+    (gradedReports.reduce((s, r) => s + r.grade, 0) / gradedReports.length).toFixed(1) : null;
+  const grade = DB.gradeByGroup(group.id);
+
+  const doneTasks = tasks.filter(t => t.status === 'done').length;
+  const taskPct = tasks.length > 0 ? Math.round((doneTasks / tasks.length) * 100) : 0;
+
+  el.innerHTML = `
+    <div class="page-header-row">
+      <div>
+        <h1>👥 ${group.name} – ${cls ? cls.name : ''}</h1>
+        <p class="page-desc">${cls?.semester || 'Học kỳ 1 · 2026-2027'} · Tuần ${week}/16</p>
+      </div>
+      <div class="flex gap-2">
+        ${isNT ? `<button class="btn btn-secondary" onclick="openEditProject()">✏️ Sửa thông tin đề tài</button>` : ''}
+        <button class="btn btn-primary" onclick="navigate('kanban.html')">⬜ Bảng Kanban</button>
+      </div>
+    </div>
+
+    <!-- Hero Card: Project Details -->
+    <div class="card" style="margin-bottom:24px">
+      <div class="flex items-start justify-between flex-wrap gap-2 mb-2">
+        <div>
+          <div style="font-size:18px;font-weight:800;color:var(--text-primary)">${group.project}</div>
+          <div class="chip mt-1">⚙️ ${group.tech || 'Chưa cập nhật công nghệ'}</div>
+        </div>
+        ${grade?.totalScore != null ? `
+          <div style="text-align:right">
+            <div class="text-xs text-muted">Điểm tổng kết</div>
+            <div class="font-black ${scoreClass(grade.totalScore)}" style="font-size:24px">${grade.totalScore} <span style="font-size:16px">(${gradeLetterFromScore(grade.totalScore)})</span></div>
+          </div>
+        ` : ''}
+      </div>
+      <p style="font-size:13px;color:var(--text-secondary);line-height:1.7;margin-top:10px;white-space:pre-wrap">
+        ${group.description || 'Chưa có mô tả chi tiết cho dự án này.'}
+      </p>
+
+      <div class="divider"></div>
+
+      <div class="grid-auto" style="grid-template-columns:repeat(4,1fr)">
+        <div style="text-align:center;padding:8px">
+          <div class="text-xs text-muted">Báo cáo tuần đã nộp</div>
+          <div class="font-black text-lg mt-1">${submittedReports}/${week}</div>
+        </div>
+        <div style="text-align:center;padding:8px">
+          <div class="text-xs text-muted">Điểm TB báo cáo</div>
+          <div class="font-black text-lg mt-1">${avgReportScore ? avgReportScore + '/10' : '—'}</div>
+        </div>
+        <div style="text-align:center;padding:8px">
+          <div class="text-xs text-muted">Tiến độ nhiệm vụ</div>
+          <div class="font-black text-lg mt-1">${doneTasks}/${tasks.length} (${taskPct}%)</div>
+        </div>
+        <div style="text-align:center;padding:8px">
+          <div class="text-xs text-muted">Giảng viên hướng dẫn</div>
+          <div class="font-bold text-sm mt-1 truncate">${lecturer?.name || '—'}</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="grid-2" style="margin-bottom:24px">
+      <!-- Members List -->
+      <div class="card">
+        <div class="card-header">
+          <div class="card-title">👤 Thành viên nhóm (${members.length})</div>
+          ${isNT ? `<button class="btn btn-ghost btn-sm" onclick="navigate('members.html')">Quản lý ➔</button>` : ''}
+        </div>
+        <div style="display:flex;flex-direction:column;gap:10px">
+          ${members.map(m => {
+            const mTasks = tasks.filter(t => t.assignee === m.id);
+            const mDone = mTasks.filter(t => t.status === 'done').length;
+            const mPct = mTasks.length > 0 ? Math.round((mDone / mTasks.length) * 100) : 0;
+            const isMemberLeader = m.id === group.leaderId;
+
+            return `
+              <div style="display:flex;align-items:center;gap:12px;padding:10px;background:var(--gray-50);border-radius:var(--radius-sm)">
+                <div class="avatar" style="width:36px;height:36px;font-size:12px;background:${avatarBg(m.name)}">${getInitials(m.name)}</div>
+                <div style="flex:1;min-width:0">
+                  <div class="flex items-center gap-2">
+                    <span class="font-semibold text-sm truncate">${m.name}</span>
+                    ${isMemberLeader ? '<span class="badge badge-gray font-bold">NT</span>' : '<span class="badge badge-outline">SV</span>'}
+                    ${m.id === user.id ? '<span class="badge badge-black" style="font-size:9px">Bạn</span>' : ''}
+                  </div>
+                  <div class="text-xs text-muted truncate">${m.email}</div>
+                  <div class="flex items-center gap-2 mt-1">
+                    <div class="progress" style="flex:1;height:4px">
+                      <div class="progress-bar ${mPct >= 70 ? 'green' : mPct >= 40 ? 'yellow' : 'red'}" style="width:${mPct}%"></div>
+                    </div>
+                    <span class="text-xs text-muted">${mDone}/${mTasks.length} task (${mPct}%)</span>
+                  </div>
+                </div>
+              </div>
+            `;
+          }).join('')}
+        </div>
+      </div>
+
+      <!-- 16-Week Progress & Score -->
+      <div style="display:flex;flex-direction:column;gap:16px">
+        <div class="card">
+          <div class="card-header">
+            <div class="card-title">📅 Tiến độ nộp báo cáo 16 tuần</div>
+            <button class="btn btn-ghost btn-sm" onclick="navigate('reports.html')">Xem báo cáo ➔</button>
+          </div>
+          <div class="week-row mt-2">
+            ${Array.from({ length: 16 }, (_, i) => {
+              const w = i + 1;
+              const r = reports.find(x => x.week === w);
+              let cls = 'wd-future';
+              if (w <= week) {
+                if (!r) cls = 'wd-missing';
+                else if (r.status === 'graded') cls = 'wd-graded';
+                else if (r.status === 'submitted') cls = 'wd-pending';
+                else cls = 'wd-missing';
+              }
+              const tip = r ? (r.status === 'graded' ? `Tuần ${w}: ${r.grade}/10` : `Tuần ${w}: Chờ chấm`) : `Tuần ${w}`;
+              return `<div class="week-dot ${cls}" title="${tip}" onclick="navigate('reports.html')">${w}</div>`;
+            }).join('')}
+          </div>
+          <div class="flex gap-3 mt-3 text-xs text-muted flex-wrap">
+            <span><span class="week-dot wd-graded" style="width:14px;height:14px;display:inline-block;vertical-align:middle;margin-right:4px"></span>Đã chấm</span>
+            <span><span class="week-dot wd-pending" style="width:14px;height:14px;display:inline-block;vertical-align:middle;margin-right:4px"></span>Chờ chấm</span>
+            <span><span class="week-dot wd-missing" style="width:14px;height:14px;display:inline-block;vertical-align:middle;margin-right:4px"></span>Chưa nộp</span>
+            <span><span class="week-dot wd-future" style="width:14px;height:14px;display:inline-block;vertical-align:middle;margin-right:4px"></span>Chưa đến</span>
+          </div>
+        </div>
+
+        <!-- Shortcut Card -->
+        <div class="card">
+          <div class="card-title mb-2">⚡ Phím tắt nhanh</div>
+          <div class="flex gap-2 flex-wrap">
+            <button class="btn btn-secondary btn-sm" onclick="navigate('kanban.html')">⬜ Bảng công việc</button>
+            <button class="btn btn-secondary btn-sm" onclick="navigate('reports.html')">📋 Báo cáo tuần</button>
+            <button class="btn btn-secondary btn-sm" onclick="navigate('product.html')">📦 Sản phẩm cuối kỳ</button>
+            <button class="btn btn-secondary btn-sm" onclick="navigate('grades.html')">🏆 Bảng điểm</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  `;
+}
+
+window.openEditProject = function() {
+  const group = DB.groupOfUser(user.id);
+  if (!group) return;
+  document.getElementById('p-name').value = group.project || '';
+  document.getElementById('p-tech').value = group.tech || '';
+  document.getElementById('p-desc').value = group.description || '';
+  openModal('m-edit-proj');
+};
+
+window.saveProjectInfo = function(e) {
+  e.preventDefault();
+  const group = DB.groupOfUser(user.id);
+  if (!group) return;
+  const project = document.getElementById('p-name').value.trim();
+  const tech = document.getElementById('p-tech').value.trim();
+  const description = document.getElementById('p-desc').value.trim();
+
+  if (!project) { showToast('Vui lòng nhập tên dự án!', 'error'); return; }
+
+  DB.updateGroup({ id: group.id, project, tech, description });
+  showToast('✅ Đã cập nhật thông tin dự án!', 'success');
+  closeModal('m-edit-proj');
+  render();
+};
+
+render();
+</script>
+</body>
+</html>

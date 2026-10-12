@@ -1,0 +1,322 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+  <meta charset="UTF-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/>
+  <title>Kanban Board – KTPMUD</title>
+  <link rel="stylesheet" href="style.css"/>
+</head>
+<body>
+<div id="app"></div>
+<div id="toast-stack" class="toast-stack"></div>
+
+<!-- Modal tạo/sửa task -->
+<div class="modal-overlay" id="m-task">
+  <div class="modal modal-md">
+    <div class="modal-header">
+      <div class="modal-title" id="m-task-title">➕ Thêm công việc</div>
+      <button class="modal-close" onclick="closeModal('m-task')">✕</button>
+    </div>
+    <form onsubmit="saveTask(event)">
+      <input type="hidden" id="task-id"/>
+      <div class="form-group">
+        <label class="form-label">Tiêu đề <span class="form-required">*</span></label>
+        <input id="task-title" class="form-control" placeholder="Tên công việc..."/>
+      </div>
+      <div class="form-group">
+        <label class="form-label">Mô tả</label>
+        <textarea id="task-desc" class="form-control" rows="2" placeholder="Chi tiết công việc..."></textarea>
+      </div>
+      <div class="form-row">
+        <div class="form-group">
+          <label class="form-label">Người thực hiện <span class="form-required">*</span></label>
+          <select id="task-assignee" class="form-control"></select>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Deadline</label>
+          <input id="task-deadline" class="form-control" type="date"/>
+        </div>
+      </div>
+      <div class="form-row">
+        <div class="form-group">
+          <label class="form-label">Trạng thái</label>
+          <select id="task-status" class="form-control">
+            <option value="todo">📋 Todo</option>
+            <option value="doing">🔄 Doing</option>
+            <option value="review">🔍 Review</option>
+            <option value="done">✅ Done</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Ưu tiên</label>
+          <select id="task-priority" class="form-control">
+            <option value="high">🔴 Cao</option>
+            <option value="medium">🟡 Trung bình</option>
+            <option value="low">🟢 Thấp</option>
+          </select>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" onclick="closeModal('m-task')">Hủy</button>
+        <button type="submit" class="btn btn-primary">💾 Lưu</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- Modal xem chi tiết task -->
+<div class="modal-overlay" id="m-task-view">
+  <div class="modal modal-md">
+    <div class="modal-header">
+      <div class="modal-title" id="m-tv-title">Chi tiết công việc</div>
+      <button class="modal-close" onclick="closeModal('m-task-view')">✕</button>
+    </div>
+    <div id="m-tv-body"></div>
+    <div class="modal-footer" id="m-tv-actions"></div>
+  </div>
+</div>
+
+<script src="data.js"></script>
+<script src="layout.js"></script>
+<script>
+const user = initPage('Kanban Board', 'kanban');
+
+const COLS = [
+  { id:'todo',   label:'📋 Todo',   color:'var(--gray-400)' },
+  { id:'doing',  label:'🔄 Doing',  color:'var(--info)' },
+  { id:'review', label:'🔍 Review', color:'var(--warning)' },
+  { id:'done',   label:'✅ Done',   color:'var(--success)' },
+];
+
+let group = null;
+
+function render() {
+  const el = document.getElementById('page-content');
+  group = DB.groupOfUser(user.id);
+
+  if (!group) {
+    el.innerHTML = '<div class="empty" style="padding:60px"><div class="empty-icon">👥</div><h3>Chưa có nhóm</h3></div>';
+    return;
+  }
+
+  const tasks = DB.tasksByGroup(group.id);
+  const members = group.members.map(id=>DB.findUserById(id)).filter(Boolean);
+  const isNT = user.role === 'nhomt';
+  const myTasks = tasks.filter(t=>t.assignee===user.id);
+  const done = myTasks.filter(t=>t.status==='done').length;
+  const overdue = tasks.filter(t=>t.status!=='done'&&t.deadline&&new Date(t.deadline)<new Date());
+
+  el.innerHTML = `
+    <div class="page-header-row">
+      <div>
+        <h1>⬜ Kanban Board – ${group.name}</h1>
+        <p class="page-desc">${tasks.length} công việc · Tiến độ cá nhân: ${myTasks.length?Math.round(done/myTasks.length*100):0}%
+          ${overdue.length?`<span class="text-danger"> · ⚠️ ${overdue.length} việc trễ hạn</span>`:''}
+        </p>
+      </div>
+      <div class="flex gap-2">
+        <button class="btn btn-secondary btn-sm" onclick="renderStats()">📊 Thống kê</button>
+        ${isNT?`<button class="btn btn-primary" onclick="openTaskModal()">➕ Thêm công việc</button>`:''}
+      </div>
+    </div>
+
+    <!-- Progress bars per member -->
+    <div class="card" style="margin-bottom:16px;padding:14px">
+      <div class="card-label">TIẾN ĐỘ THÀNH VIÊN</div>
+      <div style="display:flex;flex-wrap:wrap;gap:14px">
+        ${members.map(m=>{
+          const mTasks=tasks.filter(t=>t.assignee===m.id);
+          const mDone=mTasks.filter(t=>t.status==='done').length;
+          const pct=mTasks.length?Math.round(mDone/mTasks.length*100):0;
+          return `<div style="flex:1;min-width:160px">
+            <div class="flex items-center justify-between mb-1">
+              <span class="text-xs font-semibold">${m.name.split(' ').pop()}</span>
+              <span class="text-xs text-muted">${mDone}/${mTasks.length} · ${pct}%</span>
+            </div>
+            <div class="progress"><div class="progress-bar ${pct>=70?'green':pct>=40?'yellow':'red'}" style="width:${pct}%"></div></div>
+          </div>`;
+        }).join('')}
+      </div>
+    </div>
+
+    <!-- Kanban Columns -->
+    <div class="kanban" id="kanban-board">
+      ${COLS.map(col=>{
+        const colTasks = tasks.filter(t=>t.status===col.id);
+        return `<div class="kanban-col" id="col-${col.id}" 
+          ondragover="event.preventDefault()"
+          ondrop="dropTask(event,'${col.id}')">
+          <div class="kanban-col-header">
+            <span class="kanban-col-title" style="color:${col.color}">${col.label}</span>
+            <span class="kanban-count">${colTasks.length}</span>
+          </div>
+          <div class="kanban-cards" id="cards-${col.id}">
+            ${colTasks.map(t=>renderTaskCard(t,members)).join('')}
+          </div>
+          ${isNT?`<button class="btn btn-ghost btn-sm w-full mt-2" onclick="openTaskModal('','${col.id}')">+ Thêm</button>`:''}
+        </div>`;
+      }).join('')}
+    </div>`;
+}
+
+function renderTaskCard(t, members) {
+  const assignee = members.find(m=>m.id===t.assignee);
+  const isOver = t.status!=='done' && t.deadline && new Date(t.deadline) < new Date();
+  const pri = {high:'🔴',medium:'🟡',low:'🟢'}[t.priority]||'';
+  return `<div class="kanban-card ${isOver?'overdue':''}" 
+    id="card-${t.id}"
+    draggable="true"
+    ondragstart="dragStart(event,'${t.id}')"
+    onclick="viewTask('${t.id}')">
+    <div class="kc-title">${pri} ${t.title}</div>
+    <div class="kc-meta">
+      ${assignee?`<div class="kc-assignee"><div class="avatar" style="width:18px;height:18px;font-size:8px;background:${avatarBg(assignee.name)}">${getInitials(assignee.name)}</div>${assignee.name.split(' ').pop()}</div>`:''}
+      ${t.deadline?`<span class="kc-due ${isOver?'overdue':''}">📅 ${fmtDate(t.deadline)}</span>`:''}
+    </div>
+    ${isOver?'<div class="text-xs text-danger mt-1 font-semibold">⚠️ Trễ hạn</div>':''}
+  </div>`;
+}
+
+// ── Drag & Drop ──
+let draggedId = null;
+window.dragStart = (e,id) => { draggedId=id; e.dataTransfer.effectAllowed='move'; };
+window.dropTask = (e,status) => {
+  e.preventDefault();
+  if (!draggedId) return;
+  const t = DB.findTask(draggedId);
+  if (!t || t.status===status) return;
+  if (user.role==='sinhvien' && t.assignee!==user.id) { showToast('Bạn chỉ có thể di chuyển công việc của mình!','error'); return; }
+  const updates = { id:draggedId, status };
+  if (status==='done') updates.doneAt = new Date().toISOString();
+  DB.updateTask(updates);
+  showToast(`✅ Đã chuyển sang ${COLS.find(c=>c.id===status)?.label}`, 'success');
+  draggedId=null;
+  render();
+};
+
+// ── View Task ──
+window.viewTask = function(id) {
+  const t = DB.findTask(id);
+  if (!t) return;
+  const assignee = DB.findUserById(t.assignee);
+  const creator  = DB.findUserById(t.createdBy);
+  const isOver   = t.status!=='done' && t.deadline && new Date(t.deadline)<new Date();
+  const isNT     = user.role==='nhomt';
+  const canEdit  = isNT || t.assignee===user.id;
+
+  document.getElementById('m-tv-title').textContent = t.title;
+  document.getElementById('m-tv-body').innerHTML = `
+    <div class="flex gap-2 mb-3 flex-wrap">
+      <span class="badge badge-gray">${{todo:'📋 Todo',doing:'🔄 Doing',review:'🔍 Review',done:'✅ Done'}[t.status]}</span>
+      <span class="badge ${{'high':'badge-danger','medium':'badge-warning','low':'badge-success'}[t.priority]||'badge-gray'}">${t.priority==='high'?'Ưu tiên cao':t.priority==='medium'?'Trung bình':'Thấp'}</span>
+      ${isOver?'<span class="badge badge-danger">⚠️ Trễ hạn</span>':''}
+    </div>
+    ${t.desc?`<div class="card card-sm" style="background:var(--gray-50);margin-bottom:12px"><div class="text-sm" style="line-height:1.7;white-space:pre-wrap">${t.desc}</div></div>`:''}
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;font-size:13px">
+      <div><span class="text-muted">Người làm:</span> <strong>${assignee?.name||'—'}</strong></div>
+      <div><span class="text-muted">Deadline:</span> <strong class="${isOver?'text-danger':''}">${fmtDate(t.deadline)}</strong></div>
+      <div><span class="text-muted">Tạo bởi:</span> <strong>${creator?.name||'—'}</strong></div>
+      <div><span class="text-muted">Ngày tạo:</span> <strong>${fmtDate(t.createdAt)}</strong></div>
+      ${t.doneAt?`<div><span class="text-muted">Hoàn thành:</span> <strong>${fmtDateTime(t.doneAt)}</strong></div>`:''}
+    </div>`;
+
+  const actions = document.getElementById('m-tv-actions');
+  actions.innerHTML = '';
+  if (canEdit) {
+    const editBtn = document.createElement('button');
+    editBtn.className='btn btn-secondary'; editBtn.textContent='✏️ Sửa';
+    editBtn.onclick=()=>{closeModal('m-task-view');openTaskModal(id);};
+    actions.appendChild(editBtn);
+  }
+  if (isNT) {
+    const delBtn = document.createElement('button');
+    delBtn.className='btn btn-danger'; delBtn.textContent='🗑️ Xóa';
+    delBtn.onclick=()=>{ if(confirm('Xóa công việc này?')){DB.deleteTask(id);showToast('Đã xóa!','success');closeModal('m-task-view');render();} };
+    actions.appendChild(delBtn);
+  }
+  if (t.status!=='done' && (isNT||t.assignee===user.id)) {
+    const doneBtn = document.createElement('button');
+    doneBtn.className='btn btn-success'; doneBtn.textContent='✅ Đánh dấu Done';
+    doneBtn.onclick=()=>{ DB.updateTask({id,status:'done',doneAt:new Date().toISOString()}); showToast('✅ Đã hoàn thành!','success'); closeModal('m-task-view'); render(); };
+    actions.appendChild(doneBtn);
+  }
+  openModal('m-task-view');
+};
+
+// ── Open Task Modal ──
+window.openTaskModal = function(id='', defaultStatus='todo') {
+  const t = id ? DB.findTask(id) : null;
+  const members = group.members.map(id=>DB.findUserById(id)).filter(Boolean);
+  document.getElementById('m-task-title').textContent = t ? '✏️ Sửa công việc' : '➕ Thêm công việc';
+  document.getElementById('task-id').value = id;
+  document.getElementById('task-title').value = t?.title||'';
+  document.getElementById('task-desc').value = t?.desc||'';
+  document.getElementById('task-deadline').value = t?.deadline||'';
+  document.getElementById('task-status').value = t?.status||defaultStatus;
+  document.getElementById('task-priority').value = t?.priority||'medium';
+
+  const sel = document.getElementById('task-assignee');
+  sel.innerHTML = '<option value="">-- Chọn người --</option>' +
+    members.map(m=>`<option value="${m.id}" ${t?.assignee===m.id?'selected':''}>${m.name}</option>`).join('');
+  openModal('m-task');
+};
+
+window.saveTask = function(e) {
+  e.preventDefault();
+  const id       = document.getElementById('task-id').value;
+  const title    = document.getElementById('task-title').value.trim();
+  const assignee = document.getElementById('task-assignee').value;
+  const status   = document.getElementById('task-status').value;
+  if (!title)    { showToast('Vui lòng nhập tiêu đề!','error'); return; }
+  if (!assignee) { showToast('Vui lòng chọn người thực hiện!','error'); return; }
+  const obj = {
+    groupId:group.id, title,
+    desc: document.getElementById('task-desc').value.trim(),
+    assignee, deadline: document.getElementById('task-deadline').value,
+    status, priority: document.getElementById('task-priority').value,
+  };
+  if (id) {
+    DB.updateTask({id,...obj});
+    showToast('✅ Đã cập nhật công việc!','success');
+  } else {
+    DB.addTask({id:uid(),...obj,createdBy:user.id,createdAt:new Date().toISOString(),doneAt:null});
+    showToast('✅ Đã thêm công việc!','success');
+  }
+  closeModal('m-task');
+  render();
+};
+
+// ── Stats Modal ──
+window.renderStats = function() {
+  const tasks = DB.tasksByGroup(group.id);
+  const members = group.members.map(id=>DB.findUserById(id)).filter(Boolean);
+  let html = `<div class="modal-overlay open" id="m-stats" onclick="if(event.target===this)this.remove()">
+    <div class="modal modal-md">
+      <div class="modal-header"><div class="modal-title">📊 Thống kê tiến độ</div><button class="modal-close" onclick="document.getElementById('m-stats').remove()">✕</button></div>
+      <div class="table-wrap mt-2">
+        <table>
+          <thead><tr><th>Thành viên</th><th>Todo</th><th>Doing</th><th>Review</th><th>Done</th><th>Tiến độ</th></tr></thead>
+          <tbody>
+            ${members.map(m=>{
+              const mt=tasks.filter(t=>t.assignee===m.id);
+              const counts={todo:0,doing:0,review:0,done:0};
+              mt.forEach(t=>counts[t.status]=(counts[t.status]||0)+1);
+              const pct=mt.length?Math.round(counts.done/mt.length*100):0;
+              return `<tr>
+                <td><div class="flex items-center gap-2"><div class="avatar" style="width:24px;height:24px;font-size:9px;background:${avatarBg(m.name)}">${getInitials(m.name)}</div>${m.name}</div></td>
+                <td>${counts.todo}</td><td>${counts.doing}</td><td>${counts.review}</td>
+                <td><strong class="text-success">${counts.done}</strong></td>
+                <td style="min-width:100px"><div class="flex items-center gap-2"><div class="progress" style="flex:1"><div class="progress-bar ${pct>=70?'green':pct>=40?'yellow':'red'}" style="width:${pct}%"></div></div><span class="text-xs">${pct}%</span></div></td>
+              </tr>`;
+            }).join('')}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>`;
+  document.body.insertAdjacentHTML('beforeend',html);
+};
+
+render();
+</script>
+</body>
+</html>

@@ -1,0 +1,222 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+  <meta charset="UTF-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/>
+  <title>Bảng điểm – KTPMUD</title>
+  <link rel="stylesheet" href="style.css"/>
+</head>
+<body>
+<div id="app"></div>
+<div id="toast-stack" class="toast-stack"></div>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<script src="data.js"></script>
+<script src="layout.js"></script>
+<script>
+const user = initPage('Bảng điểm', DB.session()?.role==='giaovien' ? 'gradebook' : 'grades');
+
+function render() {
+  const el = document.getElementById('page-content');
+  if (user.role === 'giaovien') renderGV(el);
+  else renderSV(el);
+}
+
+/* ═══ GIẢNG VIÊN ═══ */
+function renderGV(el) {
+  const cid = DB.curClassId();
+  const myClasses = DB.classes().filter(c=>c.lecturerId===user.id);
+  const groups = cid ? DB.groupsByClass(cid) : DB.groups().filter(g=>myClasses.some(c=>c.id===g.classId));
+  const grades = groups.map(g=>DB.gradeByGroup(g.id)).filter(g=>g?.totalScore!=null);
+
+  // Distribution
+  const dist = {'A+':0,'A':0,'B+':0,'B':0,'C+':0,'C':0,'D+':0,'D':0,'F':0};
+  grades.forEach(g=>{ if(g.totalScore!=null) dist[gradeLetterFromScore(g.totalScore)]++; });
+  const maxD = Math.max(...Object.values(dist), 1);
+  const avg = grades.length > 0 ? (grades.reduce((s,g)=>s+(g.totalScore||0),0)/grades.length).toFixed(2) : null;
+
+  el.innerHTML = `
+    <div class="page-header-row">
+      <div><h1>📊 Bảng điểm tổng kết</h1><p class="page-desc">Tổng hợp điểm số các nhóm</p></div>
+      <div class="flex gap-2">
+        <button class="btn btn-secondary" onclick="exportExcelAll()">📥 Xuất Excel (.xlsx)</button>
+        <button class="btn btn-primary" onclick="navigate('grading.html')">✍️ Nhập điểm</button>
+      </div>
+    </div>
+
+    <div class="grid-2" style="margin-bottom:24px">
+      <div class="card">
+        <div class="card-label">PHÂN BỐ XẾP LOẠI</div>
+        <div class="flex items-end gap-2" style="height:100px;padding-top:8px">
+          ${Object.entries(dist).map(([l,c])=>{
+            const h=c>0?Math.max(14,Math.round(c/maxD*90)):4;
+            const colors={'A+':'#16a34a','A':'#16a34a','B+':'#2563eb','B':'#2563eb','C+':'#d97706','C':'#d97706','D+':'#ea580c','D':'#ea580c','F':'#dc2626'};
+            return `<div style="flex:1;display:flex;flex-direction:column;align-items:center;gap:3px">
+              <span style="font-size:10px;font-weight:700;color:${colors[l]}">${c||''}</span>
+              <div style="width:100%;height:${h}px;background:${colors[l]};border-radius:3px 3px 0 0;opacity:0.85"></div>
+              <span style="font-size:10px;color:var(--text-muted)">${l}</span>
+            </div>`;
+          }).join('')}
+        </div>
+      </div>
+      <div class="card">
+        <div class="card-label">THỐNG KÊ TỔNG QUAN</div>
+        <div style="margin-top:4px">
+          ${[
+            ['Tổng số nhóm', groups.length],
+            ['Đã có điểm tổng kết', grades.length],
+            ['Chưa có điểm', groups.length - grades.length],
+            ['Điểm TB lớp', avg ?? '—'],
+            ['Điểm cao nhất', grades.length>0?Math.max(...grades.map(g=>g.totalScore||0)):'—'],
+            ['Điểm thấp nhất', grades.length>0?Math.min(...grades.map(g=>g.totalScore||0)):'—'],
+          ].map(([l,v])=>`
+            <div class="flex items-center justify-between" style="padding:7px 0;border-bottom:1px solid var(--border)">
+              <span class="text-secondary text-sm">${l}</span>
+              <span class="font-bold">${v}</span>
+            </div>`).join('')}
+        </div>
+      </div>
+    </div>
+
+    <div class="table-wrap" style="margin-bottom:24px">
+      <table>
+        <thead><tr><th>#</th><th>Nhóm</th><th>Dự án</th><th>Thành viên</th><th>TB BC</th><th>ĐQT</th><th>ĐGK</th><th>ĐCK</th><th>Tổng kết</th><th>Xếp loại</th></tr></thead>
+        <tbody>
+          ${groups.map((g,i)=>{
+            const grade=DB.gradeByGroup(g.id);
+            const reps=DB.reportsByGroup(g.id).filter(r=>r.status==='graded');
+            const avg=reps.length>0?(reps.reduce((s,r)=>s+r.grade,0)/reps.length).toFixed(1):null;
+            const members=g.members.map(id=>DB.findUserById(id)).filter(Boolean);
+            return `<tr>
+              <td class="text-muted">${i+1}</td>
+              <td class="font-bold">${g.name}</td>
+              <td><div style="font-size:12px;max-width:160px">${g.project}</div></td>
+              <td><div class="flex gap-1">${members.slice(0,3).map(m=>`<div class="avatar" title="${m.name}" style="width:22px;height:22px;font-size:8px;background:${avatarBg(m.name)}">${getInitials(m.name)}</div>`).join('')}${members.length>3?`<span class="text-xs text-muted">+${members.length-3}</span>`:''}</div></td>
+              <td>${avg?`<span class="font-bold ${scoreClass(parseFloat(avg))}">${avg}</span>`:'—'}</td>
+              <td>${grade?.processScore!=null?grade.processScore:'—'}</td>
+              <td>${grade?.midtermScore!=null?grade.midtermScore:'—'}</td>
+              <td>${grade?.finalScore!=null?grade.finalScore:'—'}</td>
+              <td>${grade?.totalScore!=null?`<span class="font-black ${scoreClass(grade.totalScore)}" style="font-size:16px">${grade.totalScore}</span>`:'<span class="badge badge-gray">Chưa có</span>'}</td>
+              <td>${grade?.totalScore!=null?`<span class="font-black ${scoreClass(grade.totalScore)}" style="font-size:18px">${gradeLetterFromScore(grade.totalScore)}</span>`:'—'}</td>
+            </tr>`;
+          }).join('')}
+        </tbody>
+      </table>
+    </div>
+
+    <!-- Per-student table -->
+    <div class="card">
+      <div class="card-header"><div class="card-title">🎓 Điểm chi tiết từng sinh viên</div></div>
+      <div class="table-wrap mt-3">
+        <table>
+          <thead><tr><th>#</th><th>Sinh viên</th><th>Email</th><th>Vai trò</th><th>Nhóm</th><th>ĐQT</th><th>ĐGK</th><th>ĐCK</th><th>Tổng kết</th><th>Xếp loại</th></tr></thead>
+          <tbody>
+            ${(()=>{let rows=[],i=0; groups.forEach(g=>{const grade=DB.gradeByGroup(g.id); g.members.forEach(mid=>{const m=DB.findUserById(mid);if(!m)return; i++;
+              rows.push(`<tr>
+                <td class="text-muted">${i}</td>
+                <td><div class="flex items-center gap-2"><div class="avatar" style="width:24px;height:24px;font-size:9px;background:${avatarBg(m.name)}">${getInitials(m.name)}</div><span class="font-semibold text-sm">${m.name}</span></div></td>
+                <td class="td-muted">${m.email}</td>
+                <td>${m.role==='nhomt'?'<span class="badge badge-gray font-bold">NT</span>':'<span class="badge badge-outline">SV</span>'}</td>
+                <td class="font-semibold">${g.name}</td>
+                <td>${grade?.processScore??'—'}</td>
+                <td>${grade?.midtermScore??'—'}</td>
+                <td>${grade?.finalScore??'—'}</td>
+                <td>${grade?.totalScore!=null?`<span class="font-bold ${scoreClass(grade.totalScore)}">${grade.totalScore}</span>`:'—'}</td>
+                <td>${grade?.totalScore!=null?`<span class="font-bold ${scoreClass(grade.totalScore)}">${gradeLetterFromScore(grade.totalScore)}</span>`:'—'}</td>
+              </tr>`);
+            });}); return rows.join('');})()}
+          </tbody>
+        </table>
+      </div>
+    </div>`;
+}
+
+/* ═══ SINH VIÊN ═══ */
+function renderSV(el) {
+  const group = DB.groupOfUser(user.id);
+  if (!group) { el.innerHTML='<div class="empty"><div class="empty-icon">👥</div><h3>Chưa có nhóm</h3></div>'; return; }
+  const reports = DB.reportsByGroup(group.id);
+  const graded = reports.filter(r=>r.status==='graded');
+  const avg = graded.length>0?(graded.reduce((s,r)=>s+r.grade,0)/graded.length).toFixed(1):null;
+  const grade = DB.gradeByGroup(group.id);
+  const cls = DB.findClass(group.classId);
+
+  el.innerHTML = `
+    <div class="page-header"><h1>🏆 Điểm số – ${group.name}</h1><p class="page-desc">${cls?.name||''}</p></div>
+    <div class="grid-2">
+      <div class="card">
+        <div class="card-label">ĐIỂM TỔNG KẾT</div>
+        ${grade ? `
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:14px">
+            ${[['Điểm quá trình','processScore','30%'],['Điểm giữa kỳ','midtermScore','20%'],['Điểm cuối kỳ','finalScore','50%']].map(([l,k,w])=>`
+              <div style="padding:14px;background:var(--gray-50);border-radius:var(--radius);text-align:center">
+                <div class="text-xs text-muted">${l} (${w})</div>
+                <div style="font-size:28px;font-weight:900;margin-top:4px">${grade[k]??'—'}</div>
+              </div>`).join('')}
+            <div style="padding:14px;background:var(--gray-900);border-radius:var(--radius);text-align:center;color:#fff">
+              <div class="text-xs" style="color:rgba(255,255,255,.6)">Điểm tổng kết</div>
+              <div style="font-size:28px;font-weight:900;margin-top:4px">${grade.totalScore??'—'}</div>
+              ${grade.totalScore?`<div style="font-size:18px;font-weight:800;margin-top:2px">${gradeLetterFromScore(grade.totalScore)}</div>`:''}
+            </div>
+          </div>
+          ${grade.note?`<div class="card card-sm" style="background:var(--gray-50)"><div class="text-xs text-muted mb-1">Nhận xét giảng viên</div><div class="text-sm">${grade.note}</div></div>`:''}
+        ` : `<div class="empty" style="padding:32px"><div class="empty-icon">⏳</div><h3>Chưa có điểm tổng kết</h3><p>Giảng viên chưa nhập điểm</p></div>`}
+      </div>
+      <div class="card">
+        <div class="card-label">ĐIỂM BÁO CÁO TỪNG TUẦN</div>
+        <div style="max-height:360px;overflow-y:auto">
+          <!-- Bar chart -->
+          <div class="flex items-end gap-1" style="height:80px;margin-bottom:8px;border-bottom:1px solid var(--border);padding-bottom:4px">
+            ${Array.from({length:16},(_,i)=>{
+              const w=i+1, r=reports.find(x=>x.week===w);
+              const h=r?.grade!=null?Math.max(10,Math.round(r.grade/10*70)):3;
+              return `<div style="flex:1;display:flex;flex-direction:column;align-items:center;gap:2px">
+                ${r?.grade!=null?`<span style="font-size:8px;font-weight:700">${r.grade}</span>`:'<span style="font-size:8px"> </span>'}
+                <div style="width:100%;height:${h}px;background:${r?.grade!=null?'var(--gray-900)':'var(--gray-200)'};border-radius:2px 2px 0 0"></div>
+                <span style="font-size:8px;color:var(--text-muted)">${w}</span>
+              </div>`;
+            }).join('')}
+          </div>
+          ${reports.sort((a,b)=>b.week-a.week).map(r=>`
+            <div style="display:flex;align-items:center;gap:10px;padding:8px 0;border-bottom:1px solid var(--border)">
+              <div class="week-dot ${r.status==='graded'?'wd-graded':r.status==='submitted'?'wd-pending':'wd-missing'}">${r.week}</div>
+              <div style="flex:1">
+                <div class="text-sm font-semibold">Tuần ${r.week}</div>
+                <div class="text-xs text-muted">${fmtDate(r.submittedAt)}</div>
+              </div>
+              ${r.grade!=null?`<span class="font-black ${scoreClass(r.grade)}" style="font-size:16px">${r.grade}/10</span>`:`<span class="badge badge-warning">⏳ Chờ</span>`}
+            </div>`).join('')||'<div class="empty" style="padding:20px"><p>Chưa có báo cáo</p></div>'}
+        </div>
+      </div>
+    </div>`;
+}
+
+window.exportExcelAll = function() {
+  const cid = DB.curClassId();
+  const myClasses = DB.classes().filter(c=>c.lecturerId===user.id);
+  const cls = cid ? DB.findClass(cid) : null;
+  const groups = cid ? DB.groupsByClass(cid) : DB.groups().filter(g=>myClasses.some(c=>c.id===g.classId));
+  const wb = XLSX.utils.book_new();
+
+  const data = [];
+  let idx=0;
+  groups.forEach(g=>{
+    const grade=DB.gradeByGroup(g.id);
+    const reps=DB.reportsByGroup(g.id).filter(r=>r.status==='graded');
+    const avg=reps.length>0?(reps.reduce((s,r)=>s+r.grade,0)/reps.length).toFixed(1):'';
+    g.members.forEach(mid=>{
+      const m=DB.findUserById(mid); if(!m)return; idx++;
+      data.push({'STT':idx,'Email':m.email,'Họ tên':m.name,'Vai trò':m.role==='nhomt'?'Nhóm trưởng':'Sinh viên','Nhóm':g.name,'Dự án':g.project,'TB Báo cáo':avg,'ĐQT (30%)':grade?.processScore??'','ĐGK (20%)':grade?.midtermScore??'','ĐCK (50%)':grade?.finalScore??'','Tổng kết':grade?.totalScore??'','Xếp loại':grade?.totalScore!=null?gradeLetterFromScore(grade.totalScore):''});
+    });
+  });
+
+  const ws = XLSX.utils.json_to_sheet(data);
+  ws['!cols'] = Object.keys(data[0]||{}).map(h=>({wch:Math.max(h.length+2,12)}));
+  XLSX.utils.book_append_sheet(wb, ws, 'Bảng điểm');
+  const name=(cls?.name||'TatCaLop').replace(/[\\/:*?"<>|]/g,'_');
+  XLSX.writeFile(wb, `BangDiem_${name}_${new Date().toISOString().split('T')[0]}.xlsx`);
+  showToast('✅ Đã xuất Excel!','success');
+};
+
+render();
+</script>
+</body>
+</html>

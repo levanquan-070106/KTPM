@@ -1,0 +1,215 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+  <meta charset="UTF-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/>
+  <title>Thành viên nhóm – KTPMUD</title>
+  <link rel="stylesheet" href="style.css"/>
+</head>
+<body>
+<div id="app"></div>
+<div id="toast-stack" class="toast-stack"></div>
+
+<!-- Modal thêm thành viên -->
+<div class="modal-overlay" id="m-add-member">
+  <div class="modal modal-md">
+    <div class="modal-header">
+      <div class="modal-title">➕ Thêm thành viên vào nhóm</div>
+      <button class="modal-close" onclick="closeModal('m-add-member')">✕</button>
+    </div>
+    <form onsubmit="addMember(event)">
+      <div class="form-group">
+        <label class="form-label">Chọn sinh viên <span class="form-required">*</span></label>
+        <select id="sel-student" class="form-control" required>
+          <option value="">-- Chọn sinh viên --</option>
+        </select>
+        <div class="form-hint">Chỉ hiển thị các sinh viên chưa tham gia nhóm nào</div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" onclick="closeModal('m-add-member')">Hủy</button>
+        <button type="submit" class="btn btn-primary">➕ Thêm vào nhóm</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<script src="data.js"></script>
+<script src="layout.js"></script>
+<script>
+const user = initPage('Thành viên', 'members');
+if (user.role !== 'nhomt') navigate('dashboard.html');
+
+function render() {
+  const el = document.getElementById('page-content');
+  const group = DB.groupOfUser(user.id);
+
+  if (!group) {
+    el.innerHTML = '<div class="empty" style="padding:60px"><div class="empty-icon">👥</div><h3>Bạn chưa có nhóm</h3></div>';
+    return;
+  }
+
+  const cls = DB.findClass(group.classId);
+  const members = group.members.map(id => DB.findUserById(id)).filter(Boolean);
+  const tasks = DB.tasksByGroup(group.id);
+  const now = new Date();
+
+  el.innerHTML = `
+    <div class="page-header-row">
+      <div>
+        <h1>👤 Quản lý thành viên – ${group.name}</h1>
+        <p class="page-desc">${cls ? cls.name + ' · ' : ''}${members.length} thành viên · ${group.project}</p>
+      </div>
+      <button class="btn btn-primary" onclick="openAddMemberModal()">➕ Thêm thành viên</button>
+    </div>
+
+    <div class="stat-grid" style="grid-template-columns:repeat(3,1fr);margin-bottom:20px">
+      <div class="stat-card">
+        <div class="stat-icon si-black">👥</div>
+        <div><div class="stat-val">${members.length}</div><div class="stat-lbl">Thành viên</div></div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-icon si-gray">📋</div>
+        <div><div class="stat-val">${tasks.length}</div><div class="stat-lbl">Tổng đầu việc</div></div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-icon si-white">✅</div>
+        <div><div class="stat-val">${tasks.filter(t => t.status === 'done').length}</div><div class="stat-lbl">Việc đã xong</div></div>
+      </div>
+    </div>
+
+    <div class="grid-auto">
+      ${members.map(m => {
+        const isLeader = m.id === group.leaderId;
+        const mTasks = tasks.filter(t => t.assignee === m.id);
+        const done = mTasks.filter(t => t.status === 'done').length;
+        const doing = mTasks.filter(t => t.status === 'doing').length;
+        const overdue = mTasks.filter(t => t.status !== 'done' && t.deadline && new Date(t.deadline) < now).length;
+        const pct = mTasks.length > 0 ? Math.round((done / mTasks.length) * 100) : 0;
+
+        return `
+          <div class="card" style="position:relative">
+            ${isLeader ? `<span class="badge badge-gray font-bold" style="position:absolute;top:16px;right:16px">👑 Nhóm trưởng</span>` : ''}
+            
+            <div style="text-align:center;padding:10px 0 16px">
+              <div class="avatar" style="width:54px;height:54px;font-size:18px;margin:0 auto 10px;background:${avatarBg(m.name)}">
+                ${getInitials(m.name)}
+              </div>
+              <div class="font-bold text-base">${m.name}</div>
+              <div class="text-xs text-muted mt-1">${m.email}</div>
+            </div>
+
+            <div class="divider" style="margin:10px 0"></div>
+
+            <div class="flex items-center justify-between text-xs mb-1">
+              <span class="text-secondary font-semibold">Tiến độ nhiệm vụ</span>
+              <span class="font-bold">${done}/${mTasks.length} task (${pct}%)</span>
+            </div>
+            <div class="progress mb-3">
+              <div class="progress-bar ${pct >= 70 ? 'green' : pct >= 40 ? 'yellow' : 'red'}" style="width:${pct}%"></div>
+            </div>
+
+            <div class="flex gap-2 text-center text-xs mb-3">
+              <div style="flex:1;background:var(--gray-50);padding:6px;border-radius:4px">
+                <div class="text-muted">Đang làm</div>
+                <div class="font-bold text-sm text-info mt-1">${doing}</div>
+              </div>
+              <div style="flex:1;background:var(--gray-50);padding:6px;border-radius:4px">
+                <div class="text-muted">Hoàn thành</div>
+                <div class="font-bold text-sm text-success mt-1">${done}</div>
+              </div>
+              <div style="flex:1;background:var(--gray-50);padding:6px;border-radius:4px">
+                <div class="text-muted">Trễ hạn</div>
+                <div class="font-bold text-sm ${overdue > 0 ? 'text-danger' : 'text-muted'} mt-1">${overdue}</div>
+              </div>
+            </div>
+
+            <div class="flex gap-2">
+              ${!isLeader ? `
+                <button class="btn btn-secondary btn-sm" style="flex:1" onclick="transferLeader('${m.id}')" title="Chuyển quyền nhóm trưởng">👑 Chuyển NT</button>
+                <button class="btn btn-danger btn-sm" onclick="removeMember('${m.id}')" title="Xóa khỏi nhóm">🗑️ Xóa</button>
+              ` : `
+                <button class="btn btn-ghost btn-sm w-full" disabled style="opacity:0.6">👑 Nhóm trưởng hiện tại</button>
+              `}
+            </div>
+          </div>
+        `;
+      }).join('')}
+    </div>
+  `;
+}
+
+window.openAddMemberModal = function() {
+  const group = DB.groupOfUser(user.id);
+  if (!group) return;
+
+  const allGroups = DB.groups();
+  // Find students in the system not assigned to any group
+  const freeUsers = DB.users().filter(u =>
+    (u.role === 'sinhvien' || u.role === 'nhomt') &&
+    !allGroups.some(g => g.members.includes(u.id))
+  );
+
+  const sel = document.getElementById('sel-student');
+  sel.innerHTML = '<option value="">-- Chọn sinh viên --</option>' +
+    freeUsers.map(u => `<option value="${u.id}">${u.name} (${u.email})</option>`).join('');
+
+  openModal('m-add-member');
+};
+
+window.addMember = function(e) {
+  e.preventDefault();
+  const userId = document.getElementById('sel-student').value;
+  if (!userId) { showToast('Vui lòng chọn sinh viên!', 'error'); return; }
+
+  const group = DB.groupOfUser(user.id);
+  if (!group) return;
+
+  if (group.members.includes(userId)) {
+    showToast('Sinh viên đã ở trong nhóm!', 'warning');
+    return;
+  }
+
+  const updatedMembers = [...group.members, userId];
+  DB.updateGroup({ id: group.id, members: updatedMembers });
+  showToast('✅ Đã thêm sinh viên vào nhóm!', 'success');
+  closeModal('m-add-member');
+  render();
+};
+
+window.removeMember = function(userId) {
+  const u = DB.findUserById(userId);
+  if (!confirm(`Bạn có chắc muốn xóa ${u?.name || 'thành viên này'} khỏi nhóm?`)) return;
+
+  const group = DB.groupOfUser(user.id);
+  if (!group) return;
+
+  const updatedMembers = group.members.filter(id => id !== userId);
+  DB.updateGroup({ id: group.id, members: updatedMembers });
+  showToast('✅ Đã xóa thành viên khỏi nhóm!', 'success');
+  render();
+};
+
+window.transferLeader = function(userId) {
+  const u = DB.findUserById(userId);
+  if (!confirm(`Bạn có chắc muốn chuyển quyền nhóm trưởng cho ${u?.name || 'thành viên này'}?`)) return;
+
+  const group = DB.groupOfUser(user.id);
+  if (!group) return;
+
+  // Update current user to sinhvien if needed, target to nhomt
+  DB.updateUser({ id: user.id, role: 'sinhvien' });
+  DB.updateUser({ id: userId, role: 'nhomt' });
+  DB.updateGroup({ id: group.id, leaderId: userId });
+
+  // Update session
+  const cur = DB.session();
+  cur.role = 'sinhvien';
+  DB.setSession(cur);
+
+  showToast(`✅ Đã chuyển quyền nhóm trưởng cho ${u?.name}!`, 'success');
+  navigate('mygroup.html');
+};
+
+render();
+</script>
+</body>
+</html>

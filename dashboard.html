@@ -1,0 +1,216 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+  <meta charset="UTF-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/>
+  <title>Tổng quan – KTPMUD</title>
+  <link rel="stylesheet" href="style.css"/>
+</head>
+<body>
+<div id="app"></div>
+<div id="toast-stack" class="toast-stack"></div>
+<script src="data.js"></script>
+<script src="layout.js"></script>
+<script>
+const user = initPage('Tổng quan', 'dashboard');
+
+function render() {
+  const el = document.getElementById('page-content');
+  if (user.role === 'giaovien') renderGV(el);
+  else renderSV(el);
+}
+
+/* ═══ GIẢNG VIÊN ═══ */
+function renderGV(el) {
+  const cid = DB.curClassId();
+  const cls = cid ? DB.findClass(cid) : null;
+  const myClasses = DB.classes().filter(c => c.lecturerId === user.id);
+  const groups = cid ? DB.groupsByClass(cid) : DB.groups().filter(g => myClasses.some(c=>c.id===g.classId));
+  const reports = DB.reports();
+  const week = currentWeek();
+
+  const totalSV = groups.reduce((s,g)=>s+g.members.length,0);
+  const pending = reports.filter(r=>groups.some(g=>g.id===r.groupId)&&r.status==='submitted').length;
+  const graded  = reports.filter(r=>groups.some(g=>g.id===r.groupId)&&r.status==='graded').length;
+  const submitted = reports.filter(r=>groups.some(g=>g.id===r.groupId)).length;
+  const expected  = groups.length * week;
+  const rate = expected > 0 ? Math.round(submitted/expected*100) : 0;
+
+  el.innerHTML = `
+    <div class="page-header-row">
+      <div>
+        <h1 class="page-header" style="margin-bottom:2px">Xin chào, ${user.name.split(' ').pop()}! 👋</h1>
+        <p class="text-secondary text-sm">${cls ? cls.name+' · '+cls.semester : 'Tất cả lớp'} · Tuần ${week}/16</p>
+      </div>
+      <button class="btn btn-primary" onclick="navigate('classes.html')">🏫 Quản lý lớp học</button>
+    </div>
+
+    <div class="stat-grid">
+      <div class="stat-card"><div class="stat-icon si-black">🏫</div>
+        <div><div class="stat-val">${myClasses.length}</div><div class="stat-lbl">Lớp phụ trách</div></div>
+      </div>
+      <div class="stat-card"><div class="stat-icon si-gray">👥</div>
+        <div><div class="stat-val">${groups.length}</div><div class="stat-lbl">Nhóm dự án</div></div>
+      </div>
+      <div class="stat-card"><div class="stat-icon si-gray">🎓</div>
+        <div><div class="stat-val">${totalSV}</div><div class="stat-lbl">Sinh viên</div></div>
+      </div>
+      <div class="stat-card"><div class="stat-icon si-white">📋</div>
+        <div><div class="stat-val">${pending}</div><div class="stat-lbl">BC chờ chấm</div></div>
+      </div>
+    </div>
+
+    <div class="grid-2" style="margin-bottom:20px">
+      <div class="card">
+        <div class="card-header">
+          <div><div class="card-title">📊 Tiến độ nộp báo cáo – Tuần ${week}</div></div>
+          <button class="btn btn-sm btn-secondary" onclick="navigate('reports.html')">Xem tất cả</button>
+        </div>
+        ${groups.length === 0 ? '<div class="empty"><div class="empty-icon">📭</div><p>Chưa có nhóm nào</p></div>' :
+          groups.map(g => {
+            const r = DB.reportByGroupWeek(g.id, week);
+            const allR = DB.reportsByGroup(g.id);
+            const prog = Math.min(100, Math.round(allR.filter(x=>x.status!=='draft').length / week * 100));
+            return `<div style="padding:12px 0;border-bottom:1px solid var(--border)">
+              <div class="flex items-center justify-between mb-2">
+                <div>
+                  <span class="font-semibold text-sm">${g.name}</span>
+                  <span class="text-muted text-xs" style="margin-left:6px">${g.project.length>30?g.project.slice(0,30)+'…':g.project}</span>
+                </div>
+                ${r ? (r.status==='graded'?'<span class="badge badge-success">✅ Đã chấm</span>':r.status==='submitted'?'<span class="badge badge-warning">⏳ Chờ chấm</span>':'<span class="badge badge-gray">Nháp</span>') : '<span class="badge badge-danger">❌ Chưa nộp</span>'}
+              </div>
+              <div class="progress"><div class="progress-bar" style="width:${prog}%"></div></div>
+              <div class="text-xs text-muted mt-1">${allR.filter(x=>x.status!=='draft').length}/${week} tuần · ${prog}%</div>
+            </div>`;
+          }).join('')}
+      </div>
+
+      <div style="display:flex;flex-direction:column;gap:16px">
+        <div class="card">
+          <div class="card-header">
+            <div class="card-title">🔔 Hoạt động gần đây</div>
+          </div>
+          ${reports.filter(r=>groups.some(g=>g.id===r.groupId)).slice(-6).reverse().map(r=>{
+            const g = DB.findGroup(r.groupId);
+            return `<div style="display:flex;align-items:center;gap:10px;padding:8px 0;border-bottom:1px solid var(--border)">
+              <span style="font-size:18px">${r.status==='graded'?'✅':r.status==='submitted'?'📋':'📝'}</span>
+              <div style="flex:1;min-width:0">
+                <div class="text-sm font-semibold truncate">${g?.name} – Tuần ${r.week}</div>
+                <div class="text-xs text-muted">${fmtDateTime(r.submittedAt)}</div>
+              </div>
+              <span class="badge ${r.status==='graded'?'badge-success':r.status==='submitted'?'badge-warning':'badge-gray'}">${r.status==='graded'?'Đã chấm':r.status==='submitted'?'Chờ chấm':'Nháp'}</span>
+            </div>`;
+          }).join('') || '<div class="empty" style="padding:16px"><p>Chưa có hoạt động</p></div>'}
+        </div>
+
+        <div class="card">
+          <div class="card-header"><div class="card-title">📈 Tỉ lệ nộp báo cáo</div></div>
+          <div style="text-align:center;padding:12px 0">
+            <div style="font-size:48px;font-weight:900;color:var(--gray-900)">${rate}<span style="font-size:20px;font-weight:600;color:var(--gray-500)">%</span></div>
+            <div class="text-muted text-sm mt-1">${submitted} / ${expected} báo cáo đã nộp</div>
+            <div class="progress mt-3"><div class="progress-bar" style="width:${rate}%"></div></div>
+          </div>
+        </div>
+      </div>
+    </div>`;
+}
+
+/* ═══ SINH VIÊN / NHÓM TRƯỞNG ═══ */
+function renderSV(el) {
+  const group = DB.groupOfUser(user.id);
+  if (!group) {
+    el.innerHTML = `<div class="empty" style="padding:60px"><div class="empty-icon">👥</div><h3>Chưa có nhóm</h3><p>Vui lòng liên hệ giảng viên để được phân nhóm</p></div>`;
+    return;
+  }
+  const cls = DB.findClass(group.classId);
+  const reports = DB.reportsByGroup(group.id);
+  const tasks = DB.tasksByGroup(group.id);
+  const week = currentWeek();
+  const grade = DB.gradeByGroup(group.id);
+  const graded = reports.filter(r=>r.status==='graded');
+  const avg = graded.length > 0 ? (graded.reduce((s,r)=>s+r.grade,0)/graded.length).toFixed(1) : null;
+  const myTasks = tasks.filter(t=>t.assignee===user.id);
+  const doneTasks = myTasks.filter(t=>t.status==='done').length;
+  const myProgress = myTasks.length > 0 ? Math.round(doneTasks/myTasks.length*100) : 0;
+  const overdue = myTasks.filter(t=>t.status!=='done'&&t.deadline&&new Date(t.deadline)<new Date()).length;
+
+  el.innerHTML = `
+    <div class="page-header-row">
+      <div>
+        <h1 class="page-header" style="margin-bottom:2px">Xin chào, ${user.name.split(' ').pop()}! 👋</h1>
+        <p class="text-secondary text-sm">${group.name} · ${cls?.name||''} · Tuần ${week}/16</p>
+      </div>
+      ${user.role==='nhomt'?`<button class="btn btn-primary" onclick="navigate('reports.html')">📝 Nộp báo cáo tuần ${week}</button>`:''}
+    </div>
+
+    <div class="stat-grid">
+      <div class="stat-card"><div class="stat-icon si-black">📋</div>
+        <div><div class="stat-val">${reports.filter(r=>r.status!=='draft').length}/${week}</div><div class="stat-lbl">Báo cáo đã nộp</div></div>
+      </div>
+      <div class="stat-card"><div class="stat-icon si-gray">⭐</div>
+        <div><div class="stat-val">${avg??'—'}</div><div class="stat-lbl">Điểm TB báo cáo</div></div>
+      </div>
+      <div class="stat-card"><div class="stat-icon si-gray">✅</div>
+        <div><div class="stat-val">${doneTasks}/${myTasks.length}</div><div class="stat-lbl">Công việc hoàn thành</div></div>
+      </div>
+      <div class="stat-card"><div class="stat-icon si-white" style="${overdue>0?'background:var(--danger-bg)':''}">⚠️</div>
+        <div><div class="stat-val" style="${overdue>0?'color:var(--danger)':''}">${overdue}</div><div class="stat-lbl">Việc trễ hạn</div></div>
+      </div>
+    </div>
+
+    <div class="grid-2">
+      <div class="card">
+        <div class="card-header"><div class="card-title">📅 Tiến độ 16 tuần</div></div>
+        <div class="week-row mt-2">
+          ${Array.from({length:16},(_,i)=>{
+            const w=i+1, r=reports.find(x=>x.week===w);
+            let cls='wd-future';
+            if(w<=week){
+              if(!r) cls='wd-missing';
+              else if(r.status==='graded') cls='wd-graded';
+              else if(r.status==='submitted') cls='wd-pending';
+              else cls='wd-missing';
+            }
+            const tip=r?(r.status==='graded'?`T${w}: ${r.grade}/10`:`T${w}: ${r.status}`):` Tuần ${w}`;
+            return `<div class="week-dot ${cls}" title="${tip}" onclick="navigate('reports.html')">${w}</div>`;
+          }).join('')}
+        </div>
+        <div class="flex gap-3 mt-3 text-xs text-muted flex-wrap">
+          <span><span class="week-dot wd-graded" style="width:16px;height:16px;font-size:0;display:inline-block;vertical-align:middle;margin-right:4px"></span>Đã chấm</span>
+          <span><span class="week-dot wd-pending" style="width:16px;height:16px;font-size:0;display:inline-block;vertical-align:middle;margin-right:4px"></span>Chờ chấm</span>
+          <span><span class="week-dot wd-missing" style="width:16px;height:16px;font-size:0;display:inline-block;vertical-align:middle;margin-right:4px"></span>Chưa nộp</span>
+        </div>
+      </div>
+
+      <div style="display:flex;flex-direction:column;gap:16px">
+        <div class="card">
+          <div class="card-header"><div class="card-title">🎯 Tiến độ cá nhân</div></div>
+          <div style="text-align:center;padding:8px 0">
+            <div style="font-size:42px;font-weight:900">${myProgress}<span style="font-size:16px;color:var(--gray-500)">%</span></div>
+            <div class="text-xs text-muted">${doneTasks}/${myTasks.length} công việc hoàn thành</div>
+            <div class="progress mt-2"><div class="progress-bar ${myProgress>=70?'green':myProgress>=40?'yellow':'red'}" style="width:${myProgress}%"></div></div>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card-header"><div class="card-title">🏆 Điểm số</div></div>
+          ${grade ? `
+            <div class="flex gap-2 mt-1">
+              ${[['QT',grade.processScore,'var(--gray-900)'],['GK',grade.midtermScore,'var(--gray-600)'],['CK',grade.finalScore,'var(--gray-400)']].map(([l,v,c])=>`
+                <div style="flex:1;text-align:center;padding:10px;background:var(--gray-50);border-radius:6px">
+                  <div class="text-xs text-muted">${l}</div>
+                  <div style="font-size:20px;font-weight:800;color:${c};margin-top:2px">${v??'—'}</div>
+                </div>`).join('')}
+              <div style="flex:1;text-align:center;padding:10px;background:var(--gray-900);border-radius:6px">
+                <div class="text-xs" style="color:rgba(255,255,255,.6)">Tổng</div>
+                <div style="font-size:20px;font-weight:900;color:#fff;margin-top:2px">${grade.totalScore??'—'}</div>
+              </div>
+            </div>` : `<div class="empty" style="padding:16px"><p>Chưa có điểm</p></div>`}
+        </div>
+      </div>
+    </div>`;
+}
+
+render();
+</script>
+</body>
+</html>

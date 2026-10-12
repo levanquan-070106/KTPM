@@ -1,0 +1,221 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+  <meta charset="UTF-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/>
+  <title>Bảng điểm cá nhân – KTPMUD</title>
+  <link rel="stylesheet" href="style.css"/>
+</head>
+<body>
+<div id="app"></div>
+<div id="toast-stack" class="toast-stack"></div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<script src="data.js"></script>
+<script src="layout.js"></script>
+<script>
+const user = initPage('Điểm số', 'grades');
+
+if (user.role === 'giaovien') {
+  navigate('gradebook.html');
+}
+
+function render() {
+  const el = document.getElementById('page-content');
+  const group = DB.groupOfUser(user.id);
+
+  if (!group) {
+    el.innerHTML = '<div class="empty" style="padding:60px"><div class="empty-icon">👥</div><h3>Bạn chưa có nhóm</h3></div>';
+    return;
+  }
+
+  const cls = DB.findClass(group.classId);
+  const lecturer = cls ? DB.findUserById(cls.lecturerId) : null;
+  const grade = DB.gradeByGroup(group.id);
+  const reports = DB.reportsByGroup(group.id);
+  const gradedReports = reports.filter(r => r.status === 'graded');
+  const avgReports = gradedReports.length > 0 ?
+    (gradedReports.reduce((s, r) => s + r.grade, 0) / gradedReports.length).toFixed(1) : null;
+
+  el.innerHTML = `
+    <div class="page-header-row">
+      <div>
+        <h1>🏆 Bảng điểm – ${group.name}</h1>
+        <p class="page-desc">${cls ? cls.name + ' · ' : ''}Dự án: ${group.project} · GV: ${lecturer?.name || '—'}</p>
+      </div>
+      <button class="btn btn-primary" onclick="exportPersonalExcel()">📥 Xuất bảng điểm (.xlsx)</button>
+    </div>
+
+    <!-- Overview Grade Cards -->
+    <div class="grid-2" style="margin-bottom:24px">
+      <div class="card">
+        <div class="card-label">KẾT QUẢ ĐÁNH GIÁ TỔNG HỢP</div>
+        ${grade ? `
+          <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-bottom:14px">
+            <div style="background:var(--gray-50);padding:14px;border-radius:var(--radius-sm);text-align:center">
+              <div class="text-xs text-muted">Điểm QT (30%)</div>
+              <div class="font-black text-lg mt-1" style="font-size:26px">${grade.processScore ?? '—'}</div>
+            </div>
+            <div style="background:var(--gray-50);padding:14px;border-radius:var(--radius-sm);text-align:center">
+              <div class="text-xs text-muted">Điểm GK (20%)</div>
+              <div class="font-black text-lg mt-1" style="font-size:26px">${grade.midtermScore ?? '—'}</div>
+            </div>
+            <div style="background:var(--gray-50);padding:14px;border-radius:var(--radius-sm);text-align:center">
+              <div class="text-xs text-muted">Điểm CK (50%)</div>
+              <div class="font-black text-lg mt-1" style="font-size:26px">${grade.finalScore ?? '—'}</div>
+            </div>
+          </div>
+
+          <div style="background:var(--gray-900);color:#fff;padding:18px;border-radius:var(--radius);display:flex;align-items:center;justify-content:space-between">
+            <div>
+              <div class="text-xs" style="color:rgba(255,255,255,0.6)">ĐIỂM TỔNG KẾT HỌC PHẦN</div>
+              <div style="font-size:36px;font-weight:900;line-height:1;margin-top:6px">${grade.totalScore ?? '—'}</div>
+            </div>
+            ${grade.totalScore != null ? `
+              <div style="text-align:right">
+                <div class="text-xs" style="color:rgba(255,255,255,0.6)">XẾP LOẠI CHỮ</div>
+                <div style="font-size:36px;font-weight:900;line-height:1;margin-top:6px;color:#4ade80">${gradeLetterFromScore(grade.totalScore)}</div>
+              </div>
+            ` : ''}
+          </div>
+
+          ${grade.note ? `
+            <div class="card card-sm mt-3" style="background:var(--gray-50)">
+              <div class="text-xs text-muted font-semibold mb-1">Nhận xét của giảng viên:</div>
+              <p class="text-xs text-secondary" style="line-height:1.6">${grade.note}</p>
+            </div>
+          ` : ''}
+        ` : `
+          <div class="empty" style="padding:40px 0">
+            <div class="empty-icon">⏳</div>
+            <p>Giảng viên chưa hoàn tất nhập điểm tổng kết</p>
+          </div>
+        `}
+      </div>
+
+      <!-- Weekly Progress & Chart -->
+      <div class="card">
+        <div class="card-label">TIẾN ĐỘ ĐIỂM BÁO CÁO TUẦN (TB: ${avgReports ? avgReports + '/10' : '—'})</div>
+        <div class="flex items-end gap-1" style="height:100px;margin-bottom:12px;border-bottom:1px solid var(--border);padding-bottom:6px">
+          ${Array.from({ length: 16 }, (_, i) => {
+            const w = i + 1;
+            const r = reports.find(x => x.week === w);
+            const h = r?.grade != null ? Math.max(12, Math.round((r.grade / 10) * 85)) : 4;
+            return `
+              <div style="flex:1;display:flex;flex-direction:column;align-items:center;gap:3px">
+                <span style="font-size:9px;font-weight:700">${r?.grade != null ? r.grade : ''}</span>
+                <div style="width:100%;height:${h}px;background:${r?.grade != null ? 'var(--gray-900)' : 'var(--gray-200)'};border-radius:2px 2px 0 0"></div>
+                <span style="font-size:9px;color:var(--text-muted)">${w}</span>
+              </div>
+            `;
+          }).join('')}
+        </div>
+
+        <div style="font-size:12px;color:var(--text-secondary);line-height:1.6">
+          <div>• <strong>Công thức tính:</strong> ĐQT = 30%, ĐGK = 20%, ĐCK = 50%</div>
+          <div>• <strong>Thang điểm:</strong> A+ (≥9.0), A (≥8.5), B+ (≥8.0), B (≥7.0), C+ (≥6.5), C (≥5.5), D+ (≥5.0), D (≥4.0), F (&lt;4.0)</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Detailed Weekly Table -->
+    <div class="card">
+      <div class="card-header">
+        <div class="card-title">📋 Chi tiết điểm từng tuần báo cáo</div>
+      </div>
+      <div class="table-wrap mt-2">
+        <table>
+          <thead>
+            <tr>
+              <th>Tuần</th>
+              <th>Nội dung tóm tắt</th>
+              <th>Thời gian nộp</th>
+              <th>File đính kèm</th>
+              <th>Trạng thái</th>
+              <th>Điểm</th>
+              <th>Nhận xét từ Giảng viên</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${Array.from({ length: 16 }, (_, i) => {
+              const w = i + 1;
+              const r = reports.find(x => x.week === w);
+              return `
+                <tr>
+                  <td><span class="badge badge-gray font-bold">Tuần ${w}</span></td>
+                  <td><div style="max-width:220px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-size:12px">${r ? r.summary : '<span class="text-muted">Chưa nộp</span>'}</div></td>
+                  <td class="td-muted">${r?.submittedAt ? fmtDateTime(r.submittedAt) : '—'}</td>
+                  <td>${r?.files?.map(f => `<span class="chip" style="margin:2px">${fileIcon(f.name)} ${f.name}</span>`).join('') || '<span class="text-muted text-xs">—</span>'}</td>
+                  <td>
+                    ${!r ? '<span class="badge badge-gray">Chưa nộp</span>' :
+                      r.status === 'graded' ? '<span class="badge badge-success">✅ Đã chấm</span>' :
+                      '<span class="badge badge-warning">⏳ Chờ chấm</span>'}
+                  </td>
+                  <td>
+                    ${r?.grade != null ? `<span class="font-bold ${scoreClass(r.grade)}">${r.grade}/10</span>` : '<span class="text-muted">—</span>'}
+                  </td>
+                  <td class="text-xs text-secondary" style="max-width:240px">
+                    ${r?.feedback || '<span class="text-muted">—</span>'}
+                  </td>
+                </tr>
+              `;
+            }).join('')}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  `;
+}
+
+window.exportPersonalExcel = function() {
+  const group = DB.groupOfUser(user.id);
+  const cls = DB.findClass(group.classId);
+  const grade = DB.gradeByGroup(group.id);
+  const reports = DB.reportsByGroup(group.id);
+
+  const summaryData = [
+    { 'Thông tin': 'Họ và tên sinh viên', 'Giá trị': user.name },
+    { 'Thông tin': 'Email', 'Giá trị': user.email },
+    { 'Thông tin': 'Nhóm dự án', 'Giá trị': group.name },
+    { 'Thông tin': 'Tên đề tài', 'Giá trị': group.project },
+    { 'Thông tin': 'Lớp học', 'Giá trị': cls?.name || '' },
+    { 'Thông tin': 'Điểm quá trình (30%)', 'Giá trị': grade?.processScore ?? '' },
+    { 'Thông tin': 'Điểm giữa kỳ (20%)', 'Giá trị': grade?.midtermScore ?? '' },
+    { 'Thông tin': 'Điểm cuối kỳ (50%)', 'Giá trị': grade?.finalScore ?? '' },
+    { 'Thông tin': 'Điểm tổng kết', 'Giá trị': grade?.totalScore ?? '' },
+    { 'Thông tin': 'Xếp loại', 'Giá trị': grade?.totalScore != null ? gradeLetterFromScore(grade.totalScore) : '' },
+    { 'Thông tin': 'Nhận xét của giảng viên', 'Giá trị': grade?.note || '' },
+  ];
+
+  const weeklyData = Array.from({ length: 16 }, (_, i) => {
+    const w = i + 1;
+    const r = reports.find(x => x.week === w);
+    return {
+      'Tuần': `Tuần ${w}`,
+      'Trạng thái': r ? (r.status === 'graded' ? 'Đã chấm' : 'Chờ chấm') : 'Chưa nộp',
+      'Nội dung': r?.summary || '',
+      'Thời gian nộp': r?.submittedAt ? fmtDateTime(r.submittedAt) : '',
+      'File đính kèm': r?.files?.map(f => f.name).join(', ') || '',
+      'Điểm': r?.grade ?? '',
+      'Nhận xét của GV': r?.feedback || '',
+    };
+  });
+
+  const wb = XLSX.utils.book_new();
+
+  const ws1 = XLSX.utils.json_to_sheet(summaryData);
+  ws1['!cols'] = [{ wch: 25 }, { wch: 45 }];
+  XLSX.utils.book_append_sheet(wb, ws1, 'Tổng kết điểm');
+
+  const ws2 = XLSX.utils.json_to_sheet(weeklyData);
+  ws2['!cols'] = [{ wch: 10 }, { wch: 12 }, { wch: 35 }, { wch: 20 }, { wch: 25 }, { wch: 8 }, { wch: 40 }];
+  XLSX.utils.book_append_sheet(wb, ws2, 'Chi tiết 16 tuần');
+
+  const fileName = `BangDiem_${user.name.replace(/\s+/g, '_')}_${new Date().toISOString().split('T')[0]}.xlsx`;
+  XLSX.writeFile(wb, fileName);
+  showToast('✅ Đã xuất bảng điểm cá nhân ra Excel!', 'success');
+};
+
+render();
+</script>
+</body>
+</html>

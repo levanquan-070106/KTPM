@@ -1,0 +1,446 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+  <meta charset="UTF-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/>
+  <title>Báo cáo tuần – KTPMUD</title>
+  <link rel="stylesheet" href="style.css"/>
+</head>
+<body>
+<div id="app"></div>
+<div id="toast-stack" class="toast-stack"></div>
+
+<!-- Modal: Nộp/Sửa báo cáo (NT) -->
+<div class="modal-overlay" id="m-submit">
+  <div class="modal modal-lg">
+    <div class="modal-header">
+      <div class="modal-title" id="m-sub-title">📝 Nộp báo cáo tuần</div>
+      <button class="modal-close" onclick="closeModal('m-submit')">✕</button>
+    </div>
+    <form onsubmit="submitReport(event)">
+      <input type="hidden" id="sub-week"/>
+      <input type="hidden" id="sub-rid"/>
+      <div class="form-group">
+        <label class="form-label">Tóm tắt nội dung <span class="form-required">*</span></label>
+        <textarea id="sub-summary" class="form-control" rows="4" placeholder="Mô tả công việc đã thực hiện trong tuần này..."></textarea>
+      </div>
+      <div class="form-group">
+        <label class="form-label">Kế hoạch tuần tới</label>
+        <textarea id="sub-plan" class="form-control" rows="2" placeholder="Dự kiến công việc tuần tới..."></textarea>
+      </div>
+      <!-- File Upload Zone -->
+      <div class="form-group">
+        <label class="form-label">
+          📎 File đính kèm <span class="text-muted text-xs">(Chấp nhận: .docx, .doc, .pptx, .ppt · Tối đa 20MB/file)</span>
+        </label>
+        <div class="file-zone" id="drop-zone" onclick="document.getElementById('file-input').click()">
+          <input type="file" id="file-input" multiple accept=".docx,.doc,.pptx,.ppt,.pdf" onchange="handleFiles(this.files)" style="position:absolute;inset:0;opacity:0;cursor:pointer"/>
+          <div class="fz-icon">📁</div>
+          <div class="fz-text">Kéo thả file vào đây hoặc <strong>click để chọn</strong></div>
+          <div class="fz-hint">Hỗ trợ: .docx, .doc, .pptx, .ppt, .pdf</div>
+        </div>
+        <div class="file-list" id="file-list"></div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" onclick="closeModal('m-submit')">Hủy</button>
+        <button type="submit" class="btn btn-primary">📤 Nộp báo cáo</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- Modal: Chấm điểm (GV) -->
+<div class="modal-overlay" id="m-grade">
+  <div class="modal modal-md">
+    <div class="modal-header">
+      <div class="modal-title" id="m-grade-title">✍️ Chấm điểm báo cáo</div>
+      <button class="modal-close" onclick="closeModal('m-grade')">✕</button>
+    </div>
+    <div id="m-grade-preview" style="margin-bottom:16px"></div>
+    <form onsubmit="saveGrade(event)">
+      <input type="hidden" id="grade-rid"/>
+      <div class="form-row">
+        <div class="form-group">
+          <label class="form-label">Điểm <span class="form-required">*</span></label>
+          <input id="grade-score" class="form-control" type="number" min="0" max="10" step="0.5" placeholder="0–10"/>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Điểm đề xuất</label>
+          <input id="grade-suggest" class="form-control" type="number" disabled style="background:var(--gray-50);color:var(--text-muted)"/>
+        </div>
+      </div>
+      <div class="form-group">
+        <label class="form-label">Nhận xét <span class="form-required">*</span></label>
+        <textarea id="grade-fb" class="form-control" rows="4" placeholder="Nhận xét về nội dung, chất lượng, tiến độ..."></textarea>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" onclick="closeModal('m-grade')">Hủy</button>
+        <button type="submit" class="btn btn-success">✅ Lưu điểm</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- Modal: Xem chi tiết báo cáo -->
+<div class="modal-overlay" id="m-view">
+  <div class="modal modal-lg">
+    <div class="modal-header">
+      <div class="modal-title" id="m-view-title">📋 Chi tiết báo cáo</div>
+      <button class="modal-close" onclick="closeModal('m-view')">✕</button>
+    </div>
+    <div id="m-view-body"></div>
+  </div>
+</div>
+
+<script src="data.js"></script>
+<script src="layout.js"></script>
+<script>
+const user = initPage('Báo cáo tuần', 'reports');
+
+// Uploaded files in memory (simulated)
+let pendingFiles = [];
+
+function render() {
+  const el = document.getElementById('page-content');
+  if (user.role === 'giaovien') renderGV(el);
+  else renderGroup(el);
+}
+
+/* ════ GIẢNG VIÊN ════ */
+function renderGV(el) {
+  const cid = DB.curClassId();
+  const myClasses = DB.classes().filter(c=>c.lecturerId===user.id);
+  const groups = cid ? DB.groupsByClass(cid) : DB.groups().filter(g=>myClasses.some(c=>c.id===g.classId));
+  let reports = DB.reports().filter(r=>groups.some(g=>g.id===r.groupId));
+  const week = currentWeek();
+
+  let fStatus='all', fGroup='all', fWeek='all';
+  let search='';
+
+  function innerRender() {
+    let filtered = reports;
+    if (fStatus!=='all') filtered = filtered.filter(r=>r.status===fStatus);
+    if (fGroup!=='all')  filtered = filtered.filter(r=>r.groupId===fGroup);
+    if (fWeek!=='all')   filtered = filtered.filter(r=>r.week===parseInt(fWeek));
+    if (search) filtered = filtered.filter(r=>{
+      const g=DB.findGroup(r.groupId);
+      return g?.name.toLowerCase().includes(search.toLowerCase())||r.summary?.toLowerCase().includes(search.toLowerCase());
+    });
+    filtered.sort((a,b)=>new Date(b.submittedAt)-new Date(a.submittedAt));
+
+    const pending = reports.filter(r=>r.status==='submitted').length;
+    const graded  = reports.filter(r=>r.status==='graded').length;
+
+    el.innerHTML = `
+      <div class="page-header-row">
+        <div><h1>📋 Báo cáo tuần</h1><p class="page-desc">Quản lý và chấm điểm báo cáo</p></div>
+      </div>
+      <div class="stat-grid" style="grid-template-columns:repeat(4,1fr)">
+        <div class="stat-card"><div class="stat-icon si-black">📋</div><div><div class="stat-val">${reports.length}</div><div class="stat-lbl">Tổng báo cáo</div></div></div>
+        <div class="stat-card"><div class="stat-icon si-gray">⏳</div><div><div class="stat-val" style="${pending>0?'color:var(--warning)':''}">${pending}</div><div class="stat-lbl">Chờ chấm</div></div></div>
+        <div class="stat-card"><div class="stat-icon si-gray">✅</div><div><div class="stat-val" style="color:var(--success)">${graded}</div><div class="stat-lbl">Đã chấm</div></div></div>
+        <div class="stat-card"><div class="stat-icon si-white">📅</div><div><div class="stat-val">${week}</div><div class="stat-lbl">Tuần hiện tại</div></div></div>
+      </div>
+
+      <div class="card" style="margin-bottom:16px">
+        <div class="flex gap-3 flex-wrap items-center">
+          <input class="form-control" id="s-search" placeholder="🔍 Tìm kiếm..." style="flex:1;min-width:180px" value="${search}" oninput="handleSearch(this.value)"/>
+          <select class="form-control" id="s-group" style="min-width:140px" onchange="handleGroupF(this.value)">
+            <option value="all">Tất cả nhóm</option>
+            ${groups.map(g=>`<option value="${g.id}" ${fGroup===g.id?'selected':''}>${g.name}</option>`).join('')}
+          </select>
+          <select class="form-control" id="s-status" style="min-width:130px" onchange="handleStatusF(this.value)">
+            <option value="all">Tất cả TT</option>
+            <option value="submitted" ${fStatus==='submitted'?'selected':''}>Chờ chấm</option>
+            <option value="graded" ${fStatus==='graded'?'selected':''}>Đã chấm</option>
+          </select>
+          <select class="form-control" id="s-week" style="min-width:110px" onchange="handleWeekF(this.value)">
+            <option value="all">Tất cả tuần</option>
+            ${Array.from({length:16},(_,i)=>`<option value="${i+1}" ${fWeek==i+1?'selected':''}>Tuần ${i+1}</option>`).join('')}
+          </select>
+        </div>
+      </div>
+
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Nhóm</th><th>Tuần</th><th>Nội dung</th><th>File đính kèm</th><th>Thời gian nộp</th><th>Trạng thái</th><th>Điểm</th><th></th></tr></thead>
+          <tbody>
+            ${filtered.length===0?`<tr><td colspan="8"><div class="empty"><div class="empty-icon">📭</div><p>Không có báo cáo nào</p></div></td></tr>`:
+            filtered.map(r=>{
+              const g=DB.findGroup(r.groupId);
+              return `<tr>
+                <td><div class="font-semibold">${g?.name}</div><div class="td-muted">${g?.project?.slice(0,25)}…</div></td>
+                <td><span class="badge badge-gray">Tuần ${r.week}</span></td>
+                <td><div style="max-width:200px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-size:12px">${r.summary}</div></td>
+                <td>${(r.files||[]).map(f=>`<span class="chip" style="margin:2px">${fileIcon(f.name)} ${f.name.split('.').pop().toUpperCase()}</span>`).join('')||'<span class="text-muted text-xs">—</span>'}</td>
+                <td class="td-muted">${fmtDateTime(r.submittedAt)}</td>
+                <td>${r.status==='graded'?'<span class="badge badge-success">✅ Đã chấm</span>':'<span class="badge badge-warning">⏳ Chờ chấm</span>'}</td>
+                <td>${r.grade!==null&&r.grade!==undefined?`<span class="font-bold ${scoreClass(r.grade)}">${r.grade}</span>`:'<span class="text-muted">—</span>'}</td>
+                <td>
+                  <div class="flex gap-1">
+                    <button class="btn btn-ghost btn-sm" onclick="viewReport('${r.id}')">👁</button>
+                    <button class="btn ${r.status==='graded'?'btn-warning':'btn-success'} btn-sm" onclick="openGrade('${r.id}')">✍️</button>
+                  </div>
+                </td>
+              </tr>`;
+            }).join('')}
+          </tbody>
+        </table>
+      </div>`;
+
+    // Re-bind handlers  
+    document.getElementById('s-search').oninput = e => { search=e.target.value; innerRender(); };
+    document.getElementById('s-group').onchange  = e => { fGroup=e.target.value; innerRender(); };
+    document.getElementById('s-status').onchange = e => { fStatus=e.target.value; innerRender(); };
+    document.getElementById('s-week').onchange   = e => { fWeek=e.target.value; innerRender(); };
+  }
+
+  window.handleSearch = v => { search=v; innerRender(); };
+  window.handleGroupF = v => { fGroup=v; innerRender(); };
+  window.handleStatusF= v => { fStatus=v; innerRender(); };
+  window.handleWeekF  = v => { fWeek=v; innerRender(); };
+  innerRender();
+}
+
+/* ════ SINH VIÊN / NHÓM TRƯỞNG ════ */
+function renderGroup(el) {
+  const group = DB.groupOfUser(user.id);
+  if (!group) { el.innerHTML='<div class="empty"><div class="empty-icon">👥</div><h3>Chưa có nhóm</h3></div>'; return; }
+  const isNT = user.role === 'nhomt';
+  const reports = DB.reportsByGroup(group.id);
+  const week = currentWeek();
+  const graded = reports.filter(r=>r.status==='graded');
+  const avg = graded.length>0?(graded.reduce((s,r)=>s+r.grade,0)/graded.length).toFixed(1):null;
+
+  el.innerHTML = `
+    <div class="page-header-row">
+      <div><h1>📋 Báo cáo tuần – ${group.name}</h1>
+        <p class="page-desc">${reports.filter(r=>r.status!=='draft').length}/${week} tuần đã nộp · Điểm TB: ${avg??'—'}</p></div>
+      ${isNT?`<button class="btn btn-primary" onclick="openSubmit(${week})">📝 Nộp báo cáo tuần ${week}</button>`:''}
+    </div>
+
+    <!-- Grid 16 tuần -->
+    <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:10px;margin-bottom:24px">
+      ${Array.from({length:16},(_,i)=>{
+        const w=i+1, r=reports.find(x=>x.week===w);
+        const deadline = weekDeadline(w);
+        const isOver = new Date() > deadline && w <= week;
+        let statusBadge='', borderStyle='';
+        if(w>week) { statusBadge='<span class="badge badge-gray">Chưa đến</span>'; }
+        else if(!r) { statusBadge='<span class="badge badge-danger">❌ Chưa nộp</span>'; borderStyle='border-color:#fecaca'; }
+        else if(r.status==='graded') { statusBadge=`<span class="badge badge-success">✅ ${r.grade}/10</span>`; borderStyle='border-color:#bbf7d0'; }
+        else { statusBadge='<span class="badge badge-warning">⏳ Chờ chấm</span>'; borderStyle='border-color:#fde68a'; }
+
+        return `<div class="card card-sm" style="${borderStyle}">
+          <div class="flex items-center justify-between mb-2">
+            <span class="font-bold" style="font-size:13px">Tuần ${w}</span>
+            ${statusBadge}
+          </div>
+          <div class="text-xs text-muted">Hạn: ${fmtDate(deadline.toISOString())}</div>
+          ${r?`<div class="text-xs text-muted">Nộp: ${fmtDate(r.submittedAt)}</div>`:''}
+          ${r&&r.files?.length?`<div class="text-xs text-muted mt-1">${r.files.length} file đính kèm</div>`:''}
+          <div class="flex gap-1 mt-2">
+            ${r?`<button class="btn btn-ghost btn-sm" style="flex:1" onclick="viewReport('${r.id}')">👁 Xem</button>`:''}
+            ${isNT&&(!r||r.status==='submitted')&&w<=week?`<button class="btn btn-primary btn-sm" style="flex:1" onclick="openSubmit(${w},'${r?.id||''}')">
+              ${r?'✏️ Sửa':'📝 Nộp'}</button>`:''}
+          </div>
+        </div>`;
+      }).join('')}
+    </div>`;
+}
+
+/* ════ FILE UPLOAD HANDLERS ════ */
+window.handleFiles = function(files) {
+  const allowed = ['docx','doc','pptx','ppt','pdf'];
+  Array.from(files).forEach(f => {
+    const ext = f.name.split('.').pop().toLowerCase();
+    if (!allowed.includes(ext)) { showToast(`File ${f.name} không được hỗ trợ!`, 'error'); return; }
+    if (f.size > 20*1024*1024) { showToast(`File ${f.name} quá lớn (>20MB)!`, 'error'); return; }
+    // Check duplicate
+    if (pendingFiles.find(p=>p.name===f.name)) { showToast(`File ${f.name} đã được thêm!`, 'warning'); return; }
+    pendingFiles.push({ name:f.name, size:f.size, type:ext, rawFile: f });
+    renderFileList();
+  });
+};
+
+function renderFileList() {
+  const list = document.getElementById('file-list');
+  if (!list) return;
+  list.innerHTML = pendingFiles.map((f,i)=>`
+    <div class="file-item">
+      <span class="fi-icon">${fileIcon(f.name)}</span>
+      <span class="fi-name">${f.name}</span>
+      <span class="fi-size">${fmtBytes(f.size)}</span>
+      ${f.path ? `<a href="${f.path}" target="_blank" class="btn btn-ghost btn-sm" title="Tải xuống">⬇️</a>` : ''}
+      <button class="fi-remove" onclick="removeFile(${i})">✕</button>
+    </div>`).join('');
+}
+
+window.removeFile = function(i) {
+  pendingFiles.splice(i,1);
+  renderFileList();
+};
+
+// Drag and drop
+document.addEventListener('DOMContentLoaded', () => {
+  const zone = document.getElementById('drop-zone');
+  if (!zone) return;
+  zone.addEventListener('dragover', e=>{e.preventDefault(); zone.classList.add('drag-over');});
+  zone.addEventListener('dragleave', ()=>zone.classList.remove('drag-over'));
+  zone.addEventListener('drop', e=>{
+    e.preventDefault(); zone.classList.remove('drag-over');
+    handleFiles(e.dataTransfer.files);
+  });
+});
+
+/* ════ OPEN SUBMIT MODAL ════ */
+window.openSubmit = function(week, rid='') {
+  const r = rid ? DB.reports().find(x=>x.id===rid) : null;
+  document.getElementById('m-sub-title').textContent = `📝 Nộp báo cáo – Tuần ${week}`;
+  document.getElementById('sub-week').value = week;
+  document.getElementById('sub-rid').value = rid;
+  document.getElementById('sub-summary').value = r?.summary||'';
+  document.getElementById('sub-plan').value = r?.plan||'';
+  pendingFiles = r?.files ? [...r.files] : [];
+  renderFileList();
+  openModal('m-submit');
+};
+
+window.submitReport = async function(e) {
+  e.preventDefault();
+  const week = parseInt(document.getElementById('sub-week').value);
+  const rid   = document.getElementById('sub-rid').value;
+  const summary = document.getElementById('sub-summary').value.trim();
+  const plan    = document.getElementById('sub-plan').value.trim();
+  if (!summary) { showToast('Vui lòng nhập nội dung báo cáo!', 'error'); return; }
+
+  // Process files
+  let uploadedFiles = pendingFiles.map(f => ({ name: f.name, size: f.size, type: f.type, path: f.path || null }));
+  const filesToUpload = pendingFiles.filter(f => f.rawFile);
+
+  if (location.protocol.startsWith('http') && filesToUpload.length > 0) {
+    try {
+      showToast('Đang tải file lên máy chủ Node.js...', 'info');
+      const fd = new FormData();
+      filesToUpload.forEach(f => fd.append('files', f.rawFile));
+      const res = await fetch('/api/upload', { method: 'POST', body: fd });
+      const data = await res.json();
+      if (data.success && data.files) {
+        uploadedFiles = uploadedFiles.map(f => {
+          const match = data.files.find(df => df.originalName === f.name);
+          return match ? { ...f, path: match.path } : f;
+        });
+      }
+    } catch (err) {
+      console.warn('Backend upload failed, saving locally:', err);
+    }
+  }
+
+  const group = DB.groupOfUser(user.id);
+  const obj = { week, groupId:group.id, summary, plan, files: uploadedFiles,
+    submittedAt:new Date().toISOString(), submittedBy:user.id, status:'submitted', grade:null, feedback:null, gradedAt:null };
+
+  if (rid) {
+    DB.updateReport({id:rid, ...obj});
+    showToast(`✅ Đã cập nhật báo cáo tuần ${week}!`, 'success');
+  } else {
+    DB.addReport({id:uid(), ...obj});
+    showToast(`✅ Đã nộp báo cáo tuần ${week}!`, 'success');
+  }
+  pendingFiles = [];
+  closeModal('m-submit');
+  render();
+};
+
+/* ════ VIEW REPORT ════ */
+window.viewReport = function(rid) {
+  const r = DB.reports().find(x=>x.id===rid);
+  if (!r) return;
+  const g = DB.findGroup(r.groupId);
+  const sub = DB.findUserById(r.submittedBy);
+  document.getElementById('m-view-title').textContent = `📋 ${g?.name} – Tuần ${r.week}`;
+  document.getElementById('m-view-body').innerHTML = `
+    <div class="flex items-center justify-between mb-3">
+      <div class="flex gap-2 items-center">
+        <span class="badge badge-gray">Tuần ${r.week}</span>
+        ${r.status==='graded'?'<span class="badge badge-success">✅ Đã chấm</span>':'<span class="badge badge-warning">⏳ Chờ chấm</span>'}
+        ${r.submittedAt&&isLate(r.submittedAt,r.week)?'<span class="badge badge-danger">Nộp muộn</span>':''}
+      </div>
+      <span class="text-xs text-muted">Nộp bởi ${sub?.name} · ${fmtDateTime(r.submittedAt)}</span>
+    </div>
+    <div class="form-group">
+      <label class="form-label">Nội dung báo cáo</label>
+      <div class="card card-sm" style="white-space:pre-wrap;font-size:13px;line-height:1.7;background:var(--gray-50)">${r.summary}</div>
+    </div>
+    ${r.plan?`<div class="form-group"><label class="form-label">Kế hoạch tuần tới</label><div class="card card-sm" style="white-space:pre-wrap;font-size:13px;line-height:1.7;background:var(--gray-50)">${r.plan}</div></div>`:''}
+    ${r.files?.length?`
+      <div class="form-group">
+        <label class="form-label">📎 File đính kèm (${r.files.length})</label>
+        <div class="file-list">
+          ${r.files.map(f=>`
+            <div class="file-item">
+              <span class="fi-icon">${fileIcon(f.name)}</span>
+              <span class="fi-name">${f.name}</span>
+              <span class="fi-size">${fmtBytes(f.size)}</span>
+              ${f.path ? `
+                <a href="${f.path}" target="_blank" download="${f.name}" class="btn btn-secondary btn-sm" title="Tải xuống">⬇️ Tải file</a>
+              ` : `
+                <button class="btn btn-ghost btn-sm" onclick="showToast('File mô phỏng mẫu','info')">📄</button>
+              `}
+            </div>
+          `).join('')}
+        </div>
+      </div>`:''}
+    ${r.status==='graded'?`
+      <div class="divider"></div>
+      <div class="card card-sm" style="background:var(--success-bg);border-color:#bbf7d0">
+        <div class="flex items-center justify-between mb-2">
+          <span class="font-bold text-sm">Điểm & Nhận xét giảng viên</span>
+          <span class="font-black ${scoreClass(r.grade)}" style="font-size:20px">${r.grade}/10</span>
+        </div>
+        <p style="font-size:13px;color:var(--text-secondary);line-height:1.6">${r.feedback}</p>
+        <div class="text-xs text-muted mt-2">Chấm lúc: ${fmtDateTime(r.gradedAt)}</div>
+      </div>`:''}
+    ${user.role==='giaovien'&&r.status!=='graded'?`
+      <div class="modal-footer" style="border:none;padding-top:8px">
+        <button class="btn btn-success" onclick="closeModal('m-view');openGrade('${r.id}')">✍️ Chấm điểm ngay</button>
+      </div>`:''}`;
+  openModal('m-view');
+};
+
+/* ════ GRADE ════ */
+window.openGrade = function(rid) {
+  const r = DB.reports().find(x=>x.id===rid);
+  const g = DB.findGroup(r.groupId);
+  document.getElementById('m-grade-title').textContent = `✍️ Chấm điểm – ${g?.name} Tuần ${r.week}`;
+  document.getElementById('grade-rid').value = rid;
+  document.getElementById('grade-score').value = r.grade ?? '';
+  document.getElementById('grade-fb').value = r.feedback ?? '';
+  // Suggest score based on files count
+  const suggest = Math.min(10, 5 + (r.files?.length||0) * 0.5 + (r.summary?.length>200?1:0));
+  document.getElementById('grade-suggest').value = suggest.toFixed(1);
+  document.getElementById('m-grade-preview').innerHTML = `
+    <div class="card card-sm" style="background:var(--gray-50)">
+      <div class="font-semibold text-sm mb-1">${g?.name} – Tuần ${r.week}</div>
+      <div class="text-xs text-secondary" style="max-height:60px;overflow:hidden">${r.summary}</div>
+      ${r.files?.length?`<div class="text-xs text-muted mt-1">📎 ${r.files.length} file: ${r.files.map(f=>f.name).join(', ')}</div>`:''}
+    </div>`;
+  openModal('m-grade');
+};
+
+window.saveGrade = function(e) {
+  e.preventDefault();
+  const rid = document.getElementById('grade-rid').value;
+  const score = parseFloat(document.getElementById('grade-score').value);
+  const fb = document.getElementById('grade-fb').value.trim();
+  if (isNaN(score)||score<0||score>10) { showToast('Điểm phải từ 0 đến 10!', 'error'); return; }
+  if (!fb) { showToast('Vui lòng nhập nhận xét!', 'error'); return; }
+  DB.updateReport({ id:rid, grade:score, feedback:fb, status:'graded', gradedAt:new Date().toISOString() });
+  showToast('✅ Đã lưu điểm!', 'success');
+  closeModal('m-grade');
+  render();
+};
+
+render();
+</script>
+</body>
+</html>

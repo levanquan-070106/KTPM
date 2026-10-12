@@ -1,0 +1,196 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+  <meta charset="UTF-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/>
+  <title>Lớp học – KTPMUD</title>
+  <link rel="stylesheet" href="style.css"/>
+</head>
+<body>
+<div id="app"></div>
+<div id="toast-stack" class="toast-stack"></div>
+
+<!-- Modal tạo/sửa lớp -->
+<div class="modal-overlay" id="m-class">
+  <div class="modal modal-md">
+    <div class="modal-header">
+      <div class="modal-title" id="m-class-title">🏫 Tạo lớp học mới</div>
+      <button class="modal-close" onclick="closeModal('m-class')">✕</button>
+    </div>
+    <form onsubmit="saveClass(event)">
+      <input type="hidden" id="cls-id"/>
+      <div class="form-row">
+        <div class="form-group">
+          <label class="form-label">Tên lớp <span class="form-required">*</span></label>
+          <input id="cls-name" class="form-control" placeholder="KTPMUD – K68A"/>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Mã học phần</label>
+          <input id="cls-code" class="form-control" placeholder="IT4082E-A"/>
+        </div>
+      </div>
+      <div class="form-row">
+        <div class="form-group">
+          <label class="form-label">Học kỳ <span class="form-required">*</span></label>
+          <input id="cls-sem" class="form-control" placeholder="HK1 2026-2027"/>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Số tuần học</label>
+          <input id="cls-weeks" class="form-control" type="number" min="8" max="20" value="16"/>
+        </div>
+      </div>
+      <div class="form-group">
+        <label class="form-label">Ngày bắt đầu học kỳ</label>
+        <input id="cls-start" class="form-control" type="date"/>
+      </div>
+      <div class="form-group" style="display:flex;align-items:center;gap:10px">
+        <input id="cls-active" type="checkbox" style="width:16px;height:16px;cursor:pointer"/>
+        <label for="cls-active" style="font-size:13px;font-weight:500;cursor:pointer">Lớp đang hoạt động</label>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" onclick="closeModal('m-class')">Hủy</button>
+        <button type="submit" class="btn btn-primary">💾 Lưu lớp học</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- Modal xác nhận xóa -->
+<div class="modal-overlay" id="m-del">
+  <div class="modal modal-sm">
+    <div class="modal-header"><div class="modal-title">Xác nhận xóa</div><button class="modal-close" onclick="closeModal('m-del')">✕</button></div>
+    <p style="font-size:14px;color:var(--text-secondary)">Xóa lớp học này sẽ xóa toàn bộ nhóm và dữ liệu liên quan. Bạn có chắc không?</p>
+    <div class="modal-footer">
+      <button class="btn btn-secondary" onclick="closeModal('m-del')">Hủy</button>
+      <button class="btn btn-danger" id="del-confirm-btn">🗑️ Xóa</button>
+    </div>
+  </div>
+</div>
+
+<script src="data.js"></script>
+<script src="layout.js"></script>
+<script>
+const user = initPage('Lớp học', 'classes');
+if (user.role !== 'giaovien') navigate('dashboard.html');
+
+function render() {
+  const el = document.getElementById('page-content');
+  const classes = DB.classes().filter(c => c.lecturerId === user.id);
+
+  el.innerHTML = `
+    <div class="page-header-row">
+      <div>
+        <h1>🏫 Lớp học của tôi</h1>
+        <p class="page-desc">${classes.length} lớp đang quản lý</p>
+      </div>
+      <button class="btn btn-primary" onclick="openClassModal()">➕ Tạo lớp mới</button>
+    </div>
+
+    ${classes.length === 0 ? `<div class="empty" style="padding:60px"><div class="empty-icon">🏫</div><h3>Chưa có lớp học</h3><p>Hãy tạo lớp học đầu tiên của bạn</p><button class="btn btn-primary mt-3" onclick="openClassModal()">➕ Tạo lớp ngay</button></div>` :
+    `<div class="grid-auto">
+      ${classes.map(cls => {
+        const groups = DB.groupsByClass(cls.id);
+        const totalSV = groups.reduce((s,g)=>s+g.members.length,0);
+        const reports = DB.reports().filter(r => groups.some(g=>g.id===r.groupId));
+        const pending = reports.filter(r=>r.status==='submitted').length;
+        const isCur = DB.curClassId() === cls.id;
+
+        return `<div class="card" style="${isCur?'border-color:var(--gray-900);':''}">
+          <div class="card-header">
+            <div>
+              <div class="card-title">${cls.name}</div>
+              <div class="card-subtitle">${cls.code} · ${cls.semester}</div>
+            </div>
+            <div class="flex gap-1">
+              ${cls.active ? '<span class="badge badge-success">Đang học</span>' : '<span class="badge badge-gray">Kết thúc</span>'}
+              ${isCur ? '<span class="badge badge-black">Đang xem</span>' : ''}
+            </div>
+          </div>
+          <div class="divider" style="margin:12px 0"></div>
+          <div class="flex gap-3" style="margin-bottom:14px">
+            <div style="text-align:center;flex:1">
+              <div style="font-size:20px;font-weight:800">${groups.length}</div>
+              <div class="text-xs text-muted">Nhóm</div>
+            </div>
+            <div style="text-align:center;flex:1">
+              <div style="font-size:20px;font-weight:800">${totalSV}</div>
+              <div class="text-xs text-muted">Sinh viên</div>
+            </div>
+            <div style="text-align:center;flex:1">
+              <div style="font-size:20px;font-weight:800;${pending>0?'color:var(--warning)':''}">${pending}</div>
+              <div class="text-xs text-muted">BC chờ chấm</div>
+            </div>
+            <div style="text-align:center;flex:1">
+              <div style="font-size:20px;font-weight:800">${cls.totalWeeks||16}</div>
+              <div class="text-xs text-muted">Tuần</div>
+            </div>
+          </div>
+          <div class="flex gap-2">
+            <button class="btn btn-primary btn-sm" style="flex:1" onclick="switchClass('${cls.id}');navigate('dashboard.html')">
+              ${isCur?'✓ Đang xem':'Chuyển sang lớp này'}
+            </button>
+            <button class="btn btn-secondary btn-sm" onclick="openClassModal('${cls.id}')">✏️</button>
+            <button class="btn btn-danger btn-sm" onclick="confirmDelete('${cls.id}')">🗑️</button>
+          </div>
+        </div>`;
+      }).join('')}
+    </div>`}`;
+}
+
+window.openClassModal = function(id='') {
+  const cls = id ? DB.findClass(id) : null;
+  document.getElementById('m-class-title').textContent = cls ? '✏️ Sửa lớp học' : '🏫 Tạo lớp học mới';
+  document.getElementById('cls-id').value = id;
+  document.getElementById('cls-name').value = cls?.name || '';
+  document.getElementById('cls-code').value = cls?.code || '';
+  document.getElementById('cls-sem').value = cls?.semester || '';
+  document.getElementById('cls-weeks').value = cls?.totalWeeks || 16;
+  document.getElementById('cls-start').value = cls?.semStart || '';
+  document.getElementById('cls-active').checked = cls ? cls.active : true;
+  openModal('m-class');
+};
+
+window.saveClass = function(e) {
+  e.preventDefault();
+  const id = document.getElementById('cls-id').value;
+  const name = document.getElementById('cls-name').value.trim();
+  const semester = document.getElementById('cls-sem').value.trim();
+  if (!name || !semester) { showToast('Vui lòng nhập tên lớp và học kỳ!', 'error'); return; }
+  const obj = {
+    name, code: document.getElementById('cls-code').value.trim(),
+    semester, totalWeeks: parseInt(document.getElementById('cls-weeks').value)||16,
+    semStart: document.getElementById('cls-start').value,
+    active: document.getElementById('cls-active').checked,
+    lecturerId: user.id,
+  };
+  if (id) {
+    DB.updateClass({id, ...obj});
+    showToast('✅ Đã cập nhật lớp học!', 'success');
+  } else {
+    const newId = uid();
+    DB.addClassroom({id: newId, ...obj, createdAt: new Date().toISOString()});
+    if (!DB.curClassId()) DB.setCurClass(newId);
+    showToast('✅ Đã tạo lớp học mới!', 'success');
+  }
+  closeModal('m-class');
+  render();
+};
+
+window.confirmDelete = function(id) {
+  document.getElementById('del-confirm-btn').onclick = () => {
+    DB.deleteClass(id);
+    if (DB.curClassId() === id) {
+      const remaining = DB.classes().filter(c=>c.lecturerId===user.id&&c.id!==id);
+      if (remaining[0]) DB.setCurClass(remaining[0].id);
+      else localStorage.removeItem('ktpmud_cur_class');
+    }
+    showToast('✅ Đã xóa lớp học!', 'success');
+    closeModal('m-del');
+    render();
+  };
+  openModal('m-del');
+};
+
+render();
+</script>
+</body>
+</html>

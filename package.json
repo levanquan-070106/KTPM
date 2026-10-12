@@ -1,0 +1,18 @@
+{
+  "name": "ktpmud",
+  "version": "1.0.0",
+  "description": "> **Trường Điện - Điện tử · Đại học Bách khoa Hà Nội**   > **Đề tài:** Hệ thống quản lý tiến độ thực hiện project môn KTPMUD   > **GVHD:** TS. Hoàng Quang Huy   > **Sinh viên:** Lê Văn Quân (202414324) – Đỗ Xuân Nguyện (202414288)",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node --watch server.js"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "dependencies": {
+    "express": "^5.3.0",
+    "multer": "^2.4.0"
+  }
+}
