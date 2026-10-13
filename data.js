@@ -167,8 +167,11 @@ const DB = {
   clearSession() { localStorage.removeItem(K.SESSION); },
 
   // ─ Current class ─
-  curClassId() { return localStorage.getItem(K.CUR_CLASS) || null; },
-  setCurClass(id) { localStorage.setItem(K.CUR_CLASS, id); },
+  curClassId() {
+    const v = localStorage.getItem(K.CUR_CLASS);
+    return (!v || v === 'all') ? null : v;
+  },
+  setCurClass(id) { localStorage.setItem(K.CUR_CLASS, id || 'all'); },
 };
 
 // ── Utilities ───────────────────────────────────────────────
@@ -369,6 +372,18 @@ async function syncFromSQLite() {
       _set(K.REPORTS, res.data.reports);
       _set(K.PRODUCTS, res.data.products);
       _set(K.GRADES, res.data.grades);
+
+      // Kiểm tra lớp hiện tại có còn tồn tại không
+      const curCid = localStorage.getItem(K.CUR_CLASS);
+      if (curCid && curCid !== 'all' && !res.data.classes.some(c => c.id === curCid)) {
+        const firstClass = res.data.classes[0]?.id || '';
+        localStorage.setItem(K.CUR_CLASS, firstClass);
+      }
+
+      // Cập nhật lại giao diện ngay sau khi đồng bộ xong từ SQLite
+      if (typeof window.render === 'function') {
+        try { window.render(); } catch (e) { console.warn('Re-render error:', e); }
+      }
     }
   } catch (err) {
     console.warn('Sync SQLite failed:', err);
@@ -378,4 +393,5 @@ async function syncFromSQLite() {
 if (typeof window !== 'undefined' && location.protocol.startsWith('http')) {
   syncFromSQLite();
 }
+
 

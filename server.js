@@ -158,6 +158,14 @@ app.put('/api/classes/:id', (req, res) => {
 
 app.delete('/api/classes/:id', (req, res) => {
   try {
+    const classGroups = db.prepare('SELECT id FROM groups WHERE class_id = ?').all(req.params.id);
+    classGroups.forEach(g => {
+      db.prepare('DELETE FROM group_members WHERE group_id = ?').run(g.id);
+      db.prepare('DELETE FROM tasks WHERE group_id = ?').run(g.id);
+      db.prepare('DELETE FROM reports WHERE group_id = ?').run(g.id);
+      db.prepare('DELETE FROM grades WHERE group_id = ?').run(g.id);
+    });
+    db.prepare('DELETE FROM groups WHERE class_id = ?').run(req.params.id);
     db.prepare('DELETE FROM classes WHERE id = ?').run(req.params.id);
     res.json({ success: true });
   } catch (err) {

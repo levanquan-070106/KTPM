@@ -105,17 +105,39 @@ function render() {
   const el = document.getElementById('page-content');
   const cid = DB.curClassId();
   const myClasses = DB.classes().filter(c => c.lecturerId === user.id);
-  const groups = cid ? DB.groupsByClass(cid) : DB.groups().filter(g => myClasses.some(c => c.id === g.classId));
+  const allMyGroups = DB.groups().filter(g => myClasses.some(c => c.id === g.classId));
+  const groups = cid ? DB.groupsByClass(cid) : allMyGroups;
   const reports = DB.reports();
   const week = currentWeek();
+
+  // Đồng bộ dropdown trên topbar nếu có
+  const topSel = document.getElementById('class-switcher');
+  if (topSel) {
+    const rawCur = cid || 'all';
+    topSel.innerHTML = `<option value="all" ${rawCur==='all'?'selected':''}>Tất cả các lớp (${myClasses.length})</option>` +
+      myClasses.map(c => `<option value="${c.id}" ${c.id===rawCur?'selected':''}>${c.name}</option>`).join('');
+  }
 
   el.innerHTML = `
     <div class="page-header-row">
       <div>
         <h1>👥 Quản lý Nhóm dự án</h1>
-        <p class="page-desc">${groups.length} nhóm${cid ? ' · ' + (DB.findClass(cid)?.name || '') : ''}</p>
+        <p class="page-desc">${groups.length} nhóm · ${cid ? (DB.findClass(cid)?.name || '') : 'Tất cả các lớp'}</p>
       </div>
       <button class="btn btn-primary" onclick="openGroupModal()">➕ Tạo nhóm & Thêm thành viên</button>
+    </div>
+
+    <!-- Bộ lọc nhanh theo Lớp học -->
+    <div class="flex gap-2 mb-4" style="flex-wrap:wrap">
+      <button class="btn ${!cid ? 'btn-primary' : 'btn-secondary'} btn-sm" onclick="switchClass('all')">
+        🌐 Tất cả các lớp (${allMyGroups.length})
+      </button>
+      ${myClasses.map(c => {
+        const cnt = DB.groupsByClass(c.id).length;
+        return `<button class="btn ${cid === c.id ? 'btn-primary' : 'btn-secondary'} btn-sm" onclick="switchClass('${c.id}')">
+          🏫 ${c.name} (${cnt})
+        </button>`;
+      }).join('')}
     </div>
 
     <div class="stat-grid" style="grid-template-columns:repeat(4,1fr);margin-bottom:20px">
@@ -128,9 +150,14 @@ function render() {
     ${groups.length === 0 ? `
       <div class="empty" style="padding:60px">
         <div class="empty-icon">👥</div>
-        <h3>Chưa có nhóm dự án nào</h3>
-        <p>Hãy bấm nút bên dưới để tạo nhóm và phân công thành viên</p>
-        <button class="btn btn-primary mt-3" onclick="openGroupModal()">➕ Tạo nhóm đầu tiên</button>
+        <h3>Chưa có nhóm dự án nào${cid ? ' trong lớp ' + (DB.findClass(cid)?.name || '') : ''}</h3>
+        <p>${cid && allMyGroups.length > 0
+          ? `Hiện có <strong>${allMyGroups.length} nhóm</strong> đang nằm ở lớp học khác. Bạn có thể bấm xem tất cả các lớp hoặc tạo nhóm mới cho lớp này.`
+          : 'Hãy bấm nút bên dưới để tạo nhóm và phân công thành viên'}</p>
+        <div class="flex gap-2 justify-center mt-3">
+          ${cid && allMyGroups.length > 0 ? `<button class="btn btn-secondary" onclick="switchClass('all')">🌐 Xem tất cả các lớp (${allMyGroups.length} nhóm)</button>` : ''}
+          <button class="btn btn-primary" onclick="openGroupModal()">➕ Tạo nhóm đầu tiên</button>
+        </div>
       </div>
     ` : `
       <div class="grid-auto">
@@ -253,7 +280,8 @@ window.filterMemberList = function(query) {
 
 function renderMemberChecklist(query = '') {
   const students = DB.users().filter(u => u.role === 'nhomt' || u.role === 'sinhvien');
-  const allGroups = DB.groups();
+  const validClasses = DB.classes();
+  const allGroups = DB.groups().filter(grp => validClasses.some(c => c.id === grp.classId));
   const q = query.trim().toLowerCase();
   const filtered = students.filter(u => !q || u.name.toLowerCase().includes(q) || u.email.toLowerCase().includes(q));
   const leaderId = document.getElementById('g-leader')?.value;
@@ -269,6 +297,7 @@ function renderMemberChecklist(query = '') {
     const isChecked = selectedMemberIds.has(u.id);
     const isLeader = u.id === leaderId;
     const otherGroup = allGroups.find(grp => grp.id !== currentEditingGroupId && grp.members.includes(u.id));
+    const otherCls = otherGroup ? DB.findClass(otherGroup.classId) : null;
 
     return `
       <label style="display:flex;align-items:center;justify-content:space-between;padding:6px 8px;background:#fff;border:1px solid ${isChecked ? 'var(--gray-900)' : 'var(--border)'};border-radius:5px;cursor:pointer;font-size:12px">
@@ -279,7 +308,9 @@ function renderMemberChecklist(query = '') {
         </div>
         <div class="flex gap-1">
           ${isLeader ? '<span class="badge badge-black">👑 Nhóm trưởng</span>' : ''}
-          ${otherGroup ? `<span class="badge badge-gray">Đang ở ${otherGroup.name}</span>` : '<span class="badge badge-outline">Chưa có nhóm</span>'}
+          ${otherGroup
+            ? `<span class="badge badge-gray" title="Thuộc lớp ${otherCls?.name || ''}">Đang ở ${otherGroup.name}${otherCls ? ' · ' + otherCls.name : ''}</span>`
+            : '<span class="badge badge-outline">Chưa có nhóm</span>'}
         </div>
       </label>
     `;
@@ -300,6 +331,15 @@ window.saveGroup = function(e) {
 
   selectedMemberIds.add(leaderId);
   const members = Array.from(selectedMemberIds);
+
+  // Tự động gỡ các thành viên được chọn khỏi nhóm cũ (nếu trước đó đang ở nhóm khác)
+  DB.groups().forEach(oldGrp => {
+    if (oldGrp.id !== id && oldGrp.members.some(m => members.includes(m))) {
+      const remain = oldGrp.members.filter(m => !members.includes(m));
+      const newOldLeader = remain.includes(oldGrp.leaderId) ? oldGrp.leaderId : (remain[0] || '');
+      DB.updateGroup({ id: oldGrp.id, members: remain, leaderId: newOldLeader });
+    }
+  });
 
   // Cập nhật role của leader thành nhomt
   DB.updateUser({ id: leaderId, role: 'nhomt' });
@@ -362,7 +402,8 @@ window.openMembersModal = function(gid) {
   sel.innerHTML = '<option value="">-- Chọn sinh viên để thêm vào nhóm --</option>' +
     available.map(u => {
       const curGrp = DB.groupOfUser(u.id);
-      return `<option value="${u.id}">${u.name} (${u.email})${curGrp ? ' - Đang ở ' + curGrp.name : ' - Chưa có nhóm'}</option>`;
+      const curCls = curGrp ? DB.findClass(curGrp.classId) : null;
+      return `<option value="${u.id}">${u.name} (${u.email})${curGrp ? ' - Đang ở ' + curGrp.name + (curCls ? ' · ' + curCls.name : '') : ' - Chưa có nhóm'}</option>`;
     }).join('');
 
   openModal('m-members');
@@ -374,6 +415,14 @@ window.quickAddMember = function() {
   if (!uid) { showToast('Vui lòng chọn sinh viên!', 'error'); return; }
   const g = DB.findGroup(gid);
   if (!g) return;
+
+  // Gỡ khỏi nhóm cũ nếu có
+  DB.groups().forEach(oldGrp => {
+    if (oldGrp.id !== gid && oldGrp.members.includes(uid)) {
+      const remain = oldGrp.members.filter(m => m !== uid);
+      DB.updateGroup({ id: oldGrp.id, members: remain });
+    }
+  });
 
   const updated = [...g.members, uid];
   DB.updateGroup({ id: gid, members: updated });

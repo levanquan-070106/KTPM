@@ -84,11 +84,12 @@ function buildTopbar(user, title) {
   let classEl = '';
   if (user.role === 'giaovien') {
     const classes = DB.classes().filter(c => c.lecturerId === user.id);
-    const curId = DB.curClassId() || (classes[0]?.id || '');
-    if (!DB.curClassId() && classes[0]) DB.setCurClass(classes[0].id);
+    const rawCur = localStorage.getItem(K.CUR_CLASS) || 'all';
+    const curId = (rawCur === 'all' || classes.some(c => c.id === rawCur)) ? rawCur : 'all';
     classEl = `<div class="topbar-class">
       🏫
       <select id="class-switcher" onchange="switchClass(this.value)">
+        <option value="all" ${curId==='all'?'selected':''}>Tất cả các lớp (${classes.length})</option>
         ${classes.map(c => `<option value="${c.id}" ${c.id===curId?'selected':''}>${c.name}</option>`).join('')}
       </select>
     </div>`;
@@ -111,7 +112,13 @@ function buildTopbar(user, title) {
 
 function switchClass(classId) {
   DB.setCurClass(classId);
-  location.reload();
+  const sel = document.getElementById('class-switcher');
+  if (sel) sel.value = classId || 'all';
+  if (typeof window.render === 'function') {
+    window.render();
+  } else {
+    location.reload();
+  }
 }
 
 // ── Main init function ──────────────────────────────────────
