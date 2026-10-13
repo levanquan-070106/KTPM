@@ -108,6 +108,11 @@ function initSchema() {
       graded_by TEXT,
       graded_at TEXT
     );
+
+    CREATE TABLE IF NOT EXISTS meta (
+      key TEXT PRIMARY KEY,
+      value TEXT
+    );
   `);
 
   // Seed data ban đầu nếu bảng users trống
@@ -116,6 +121,24 @@ function initSchema() {
     seedInitialData();
   }
 }
+
+db.getUpdatedAt = function() {
+  try {
+    const row = db.prepare("SELECT value FROM meta WHERE key = 'updated_at'").get();
+    return row ? Number(row.value) || 0 : 0;
+  } catch {
+    return 0;
+  }
+};
+
+db.setUpdatedAt = function(ts = Date.now()) {
+  try {
+    db.prepare("INSERT OR REPLACE INTO meta (key, value) VALUES ('updated_at', ?)").run(String(ts));
+    return Number(ts);
+  } catch {
+    return 0;
+  }
+};
 
 function seedInitialData() {
   console.log('🌱 Đang nạp dữ liệu mẫu vào SQLite database...');
@@ -166,7 +189,7 @@ function seedInitialData() {
     ['t4', 'g1', 'Xây dựng giao diện frontend', 'React + Tailwind, responsive', 'doing', 'u5', '2026-10-18', 'u3', '2026-09-01', null, 'medium'],
     ['t5', 'g1', 'Module Kanban board', 'Drag & drop, cập nhật realtime', 'todo', 'u4', '2026-10-25', 'u3', '2026-09-15', null, 'medium'],
     ['t6', 'g1', 'Module xuất báo cáo Excel', 'Dùng SheetJS', 'todo', 'u5', '2026-10-28', 'u3', '2026-09-15', null, 'low'],
-    ['t7', 'g1', 'Viết tài liệu kỹ thuật', 'API docs, README', 'review', 'u4', '2026-10-13', 'u3', '2026-10-01', null, 'medium'],
+    ['t7', 'g1', 'Viết tài liệu kỹ thuật', 'API docs, README', 'review', 'u4', '2026-10-13', 'u3', '2026-09-01', null, 'medium'],
     ['t8', 'g2', 'Thiết kế UI/UX Figma', 'Wireframe + prototype', 'done', 'u7', '2026-09-10', 'u6', '2026-08-22', '2026-09-09', 'high'],
     ['t9', 'g2', 'Cài đặt Laravel backend', 'Auth, CRUD phòng học', 'doing', 'u6', '2026-10-20', 'u6', '2026-09-05', null, 'high'],
   ];
@@ -198,6 +221,8 @@ function seedInitialData() {
   insertGrade.run('g1', 8.2, 7.5, null, null, 'Nhóm làm việc chủ động', 'u1', new Date().toISOString());
   insertGrade.run('g2', 7.0, 6.5, null, null, 'Cần đẩy nhanh tiến độ backend', 'u1', new Date().toISOString());
 
+  // Đánh dấu dữ liệu gốc ban đầu có updated_at = 0
+  db.setUpdatedAt(0);
   console.log('✅ Đã nạp dữ liệu mẫu vào SQLite thành công!');
 }
 
@@ -205,3 +230,4 @@ function seedInitialData() {
 initSchema();
 
 module.exports = db;
+

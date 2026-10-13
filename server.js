@@ -36,8 +36,8 @@ const upload = multer({
 });
 
 // Middleware
-app.use(express.json());
-app.use(express.urlencoded({ extended: true }));
+app.use(express.json({ limit: '10mb' }));
+app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 
 // Serve files
 app.use('/uploads', express.static(uploadsDir));
@@ -46,6 +46,11 @@ app.use(express.static(__dirname));
 // ═══════════════════════════════════════════════════════════
 //  API ROUTES – KẾT NỐI VỚI CƠ SỞ DỮ LIỆU SQLITE
 // ═══════════════════════════════════════════════════════════
+
+// Health check cho Keep-Alive chống ngủ đông
+app.get('/api/health', (req, res) => {
+  res.json({ ok: true, updatedAt: db.getUpdatedAt(), time: new Date().toISOString() });
+});
 
 // Helper lấy toàn bộ groups kèm mảng members
 function getFullGroups() {
@@ -72,8 +77,84 @@ app.get('/api/bootstrap', (req, res) => {
 
     res.json({
       success: true,
+      updatedAt: db.getUpdatedAt(),
       data: { users, classes, groups, tasks, reports, products, grades }
     });
+  } catch (err) {
+    res.status(500).json({ success: false, message: err.message });
+  }
+});
+
+// 1b. Auto-Restore: Tự động khôi phục dữ liệu từ client nếu server vừa thức dậy sau ngủ đông
+app.post('/api/restore', (req, res) => {
+  try {
+    const { updatedAt, data } = req.body || {};
+    const clientTs = Number(updatedAt) || 0;
+    const serverTs = db.getUpdatedAt();
+
+    if (!data || clientTs <= serverTs) {
+      return res.json({ success: true, restored: false, updatedAt: serverTs });
+    }
+
+    db.exec('BEGIN');
+    try {
+      if (Array.isArray(data.users) && data.users.length > 0) {
+        db.prepare('DELETE FROM users').run();
+        const insU = db.prepare('INSERT INTO users (id, name, email, password, role) VALUES (?, ?, ?, ?, ?)');
+        data.users.forEach(u => insU.run(u.id, u.name, u.email, u.password || '123456', u.role));
+      }
+
+      if (Array.isArray(data.classes)) {
+        db.prepare('DELETE FROM classes').run();
+        const insC = db.prepare('INSERT INTO classes (id, name, code, semester, lecturer_id, total_weeks, sem_start, active, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)');
+        data.classes.forEach(c => insC.run(c.id, c.name, c.code || '', c.semester || '', c.lecturerId, c.totalWeeks || 16, c.semStart || '', c.active ? 1 : 0, c.createdAt || new Date().toISOString()));
+      }
+
+      if (Array.isArray(data.groups)) {
+        db.prepare('DELETE FROM group_members').run();
+        db.prepare('DELETE FROM groups').run();
+        const insG = db.prepare('INSERT INTO groups (id, class_id, name, project, tech, leader_id, description, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)');
+        const insM = db.prepare('INSERT INTO group_members (group_id, user_id) VALUES (?, ?)');
+        data.groups.forEach(g => {
+          insG.run(g.id, g.classId, g.name, g.project || '', g.tech || '', g.leaderId || '', g.description || '', g.createdAt || new Date().toISOString());
+          if (Array.isArray(g.members)) {
+            g.members.forEach(uid => insM.run(g.id, uid));
+          }
+        });
+      }
+
+      if (Array.isArray(data.tasks)) {
+        db.prepare('DELETE FROM tasks').run();
+        const insT = db.prepare('INSERT INTO tasks (id, group_id, title, desc, status, assignee, deadline, created_by, created_at, done_at, priority) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)');
+        data.tasks.forEach(t => insT.run(t.id, t.groupId, t.title, t.desc || '', t.status || 'todo', t.assignee || '', t.deadline || null, t.createdBy || '', t.createdAt || new Date().toISOString(), t.doneAt || null, t.priority || 'medium'));
+      }
+
+      if (Array.isArray(data.reports)) {
+        db.prepare('DELETE FROM reports').run();
+        const insR = db.prepare('INSERT INTO reports (id, group_id, week, summary, plan, files, submitted_at, submitted_by, status, grade, feedback, graded_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)');
+        data.reports.forEach(r => insR.run(r.id, r.groupId, r.week, r.summary || '', r.plan || '', JSON.stringify(r.files || []), r.submittedAt || new Date().toISOString(), r.submittedBy || '', r.status || 'submitted', r.grade ?? null, r.feedback ?? null, r.gradedAt ?? null));
+      }
+
+      if (Array.isArray(data.products)) {
+        db.prepare('DELETE FROM products').run();
+        const insP = db.prepare('INSERT INTO products (id, group_id, name, description, github, demo, video, self_score, files, submitted_at, submitted_by, grade, feedback, graded_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)');
+        data.products.forEach(p => insP.run(p.id, p.groupId, p.name || '', p.description || '', p.github || '', p.demo || '', p.video || '', p.selfScore ?? null, typeof p.files === 'string' ? p.files : JSON.stringify(p.files || []), p.submittedAt || new Date().toISOString(), p.submittedBy || '', p.grade ?? null, p.feedback ?? null, p.gradedAt ?? null));
+      }
+
+      if (Array.isArray(data.grades)) {
+        db.prepare('DELETE FROM grades').run();
+        const insGr = db.prepare('INSERT INTO grades (group_id, process_score, midterm_score, final_score, total_score, note, graded_by, graded_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)');
+        data.grades.forEach(gr => insGr.run(gr.groupId, gr.processScore ?? null, gr.midtermScore ?? null, gr.finalScore ?? null, gr.totalScore ?? null, gr.note || '', gr.gradedBy || '', gr.gradedAt ?? null));
+      }
+
+      db.setUpdatedAt(clientTs);
+      db.exec('COMMIT');
+      console.log(`♻️ Đã tự động khôi phục dữ liệu SQLite từ bản lưu trình duyệt (ts=${clientTs})`);
+      res.json({ success: true, restored: true, updatedAt: clientTs });
+    } catch (innerErr) {
+      db.exec('ROLLBACK');
+      throw innerErr;
+    }
   } catch (err) {
     res.status(500).json({ success: false, message: err.message });
   }
@@ -103,7 +184,8 @@ app.post('/api/users', (req, res) => {
   try {
     const { id, name, email, password, role } = req.body;
     db.prepare('INSERT INTO users (id, name, email, password, role) VALUES (?, ?, ?, ?, ?)').run(id, name, email, password, role);
-    res.json({ success: true, message: 'Đã thêm người dùng' });
+    const ts = db.setUpdatedAt();
+    res.json({ success: true, updatedAt: ts, message: 'Đã thêm người dùng' });
   } catch (err) {
     res.status(500).json({ success: false, message: err.message });
   }
@@ -113,11 +195,12 @@ app.put('/api/users/:id', (req, res) => {
   try {
     const { name, email, password, role } = req.body;
     if (password) {
-      db.prepare('UPDATE users SET name = ?, email = ?, password = ?, role = ? WHERE id = ?').run(name, email, password, role, req.params.id);
+      db.prepare('UPDATE users SET name = COALESCE(?, name), email = COALESCE(?, email), password = ?, role = COALESCE(?, role) WHERE id = ?').run(name, email, password, role, req.params.id);
     } else {
-      db.prepare('UPDATE users SET name = ?, email = ?, role = ? WHERE id = ?').run(name, email, role, req.params.id);
+      db.prepare('UPDATE users SET name = COALESCE(?, name), email = COALESCE(?, email), role = COALESCE(?, role) WHERE id = ?').run(name, email, role, req.params.id);
     }
-    res.json({ success: true });
+    const ts = db.setUpdatedAt();
+    res.json({ success: true, updatedAt: ts });
   } catch (err) {
     res.status(500).json({ success: false, message: err.message });
   }
@@ -127,7 +210,8 @@ app.delete('/api/users/:id', (req, res) => {
   try {
     db.prepare('DELETE FROM users WHERE id = ?').run(req.params.id);
     db.prepare('DELETE FROM group_members WHERE user_id = ?').run(req.params.id);
-    res.json({ success: true });
+    const ts = db.setUpdatedAt();
+    res.json({ success: true, updatedAt: ts });
   } catch (err) {
     res.status(500).json({ success: false, message: err.message });
   }
@@ -139,7 +223,8 @@ app.post('/api/classes', (req, res) => {
     const { id, name, code, semester, lecturerId, totalWeeks, semStart, active, createdAt } = req.body;
     db.prepare('INSERT INTO classes (id, name, code, semester, lecturer_id, total_weeks, sem_start, active, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)')
       .run(id, name, code, semester, lecturerId, totalWeeks || 16, semStart, active ? 1 : 0, createdAt || new Date().toISOString());
-    res.json({ success: true });
+    const ts = db.setUpdatedAt();
+    res.json({ success: true, updatedAt: ts });
   } catch (err) {
     res.status(500).json({ success: false, message: err.message });
   }
@@ -150,7 +235,8 @@ app.put('/api/classes/:id', (req, res) => {
     const { name, code, semester, totalWeeks, semStart, active } = req.body;
     db.prepare('UPDATE classes SET name = ?, code = ?, semester = ?, total_weeks = ?, sem_start = ?, active = ? WHERE id = ?')
       .run(name, code, semester, totalWeeks || 16, semStart, active ? 1 : 0, req.params.id);
-    res.json({ success: true });
+    const ts = db.setUpdatedAt();
+    res.json({ success: true, updatedAt: ts });
   } catch (err) {
     res.status(500).json({ success: false, message: err.message });
   }
@@ -167,7 +253,8 @@ app.delete('/api/classes/:id', (req, res) => {
     });
     db.prepare('DELETE FROM groups WHERE class_id = ?').run(req.params.id);
     db.prepare('DELETE FROM classes WHERE id = ?').run(req.params.id);
-    res.json({ success: true });
+    const ts = db.setUpdatedAt();
+    res.json({ success: true, updatedAt: ts });
   } catch (err) {
     res.status(500).json({ success: false, message: err.message });
   }
@@ -184,7 +271,8 @@ app.post('/api/groups', (req, res) => {
       const ins = db.prepare('INSERT INTO group_members (group_id, user_id) VALUES (?, ?)');
       members.forEach(m => ins.run(id, m));
     }
-    res.json({ success: true });
+    const ts = db.setUpdatedAt();
+    res.json({ success: true, updatedAt: ts });
   } catch (err) {
     res.status(500).json({ success: false, message: err.message });
   }
@@ -201,7 +289,8 @@ app.put('/api/groups/:id', (req, res) => {
       const ins = db.prepare('INSERT INTO group_members (group_id, user_id) VALUES (?, ?)');
       members.forEach(m => ins.run(req.params.id, m));
     }
-    res.json({ success: true });
+    const ts = db.setUpdatedAt();
+    res.json({ success: true, updatedAt: ts });
   } catch (err) {
     res.status(500).json({ success: false, message: err.message });
   }
@@ -213,7 +302,8 @@ app.delete('/api/groups/:id', (req, res) => {
     db.prepare('DELETE FROM group_members WHERE group_id = ?').run(req.params.id);
     db.prepare('DELETE FROM tasks WHERE group_id = ?').run(req.params.id);
     db.prepare('DELETE FROM reports WHERE group_id = ?').run(req.params.id);
-    res.json({ success: true });
+    const ts = db.setUpdatedAt();
+    res.json({ success: true, updatedAt: ts });
   } catch (err) {
     res.status(500).json({ success: false, message: err.message });
   }
@@ -225,7 +315,8 @@ app.post('/api/tasks', (req, res) => {
     const { id, groupId, title, desc, status, assignee, deadline, createdBy, createdAt, doneAt, priority } = req.body;
     db.prepare('INSERT INTO tasks (id, group_id, title, desc, status, assignee, deadline, created_by, created_at, done_at, priority) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
       .run(id, groupId, title, desc, status, assignee, deadline, createdBy, createdAt || new Date().toISOString(), doneAt, priority || 'medium');
-    res.json({ success: true });
+    const ts = db.setUpdatedAt();
+    res.json({ success: true, updatedAt: ts });
   } catch (err) {
     res.status(500).json({ success: false, message: err.message });
   }
@@ -236,7 +327,8 @@ app.put('/api/tasks/:id', (req, res) => {
     const { title, desc, status, assignee, deadline, doneAt, priority } = req.body;
     db.prepare('UPDATE tasks SET title = COALESCE(?, title), desc = COALESCE(?, desc), status = COALESCE(?, status), assignee = COALESCE(?, assignee), deadline = COALESCE(?, deadline), done_at = COALESCE(?, done_at), priority = COALESCE(?, priority) WHERE id = ?')
       .run(title, desc, status, assignee, deadline, doneAt, priority, req.params.id);
-    res.json({ success: true });
+    const ts = db.setUpdatedAt();
+    res.json({ success: true, updatedAt: ts });
   } catch (err) {
     res.status(500).json({ success: false, message: err.message });
   }
@@ -245,7 +337,8 @@ app.put('/api/tasks/:id', (req, res) => {
 app.delete('/api/tasks/:id', (req, res) => {
   try {
     db.prepare('DELETE FROM tasks WHERE id = ?').run(req.params.id);
-    res.json({ success: true });
+    const ts = db.setUpdatedAt();
+    res.json({ success: true, updatedAt: ts });
   } catch (err) {
     res.status(500).json({ success: false, message: err.message });
   }
@@ -257,7 +350,8 @@ app.post('/api/reports', (req, res) => {
     const { id, groupId, week, summary, plan, files, submittedAt, submittedBy, status, grade, feedback, gradedAt } = req.body;
     db.prepare('INSERT INTO reports (id, group_id, week, summary, plan, files, submitted_at, submitted_by, status, grade, feedback, graded_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
       .run(id, groupId, week, summary, plan, JSON.stringify(files || []), submittedAt || new Date().toISOString(), submittedBy, status || 'submitted', grade, feedback, gradedAt);
-    res.json({ success: true });
+    const ts = db.setUpdatedAt();
+    res.json({ success: true, updatedAt: ts });
   } catch (err) {
     res.status(500).json({ success: false, message: err.message });
   }
@@ -268,7 +362,8 @@ app.put('/api/reports/:id', (req, res) => {
     const { summary, plan, files, status, grade, feedback, gradedAt } = req.body;
     db.prepare('UPDATE reports SET summary = COALESCE(?, summary), plan = COALESCE(?, plan), files = COALESCE(?, files), status = COALESCE(?, status), grade = COALESCE(?, grade), feedback = COALESCE(?, feedback), graded_at = COALESCE(?, graded_at) WHERE id = ?')
       .run(summary, plan, files ? JSON.stringify(files) : null, status, grade, feedback, gradedAt, req.params.id);
-    res.json({ success: true });
+    const ts = db.setUpdatedAt();
+    res.json({ success: true, updatedAt: ts });
   } catch (err) {
     res.status(500).json({ success: false, message: err.message });
   }
@@ -280,7 +375,8 @@ app.post('/api/products', (req, res) => {
     const { id, groupId, name, description, github, demo, video, selfScore, files, submittedAt, submittedBy, grade, feedback, gradedAt } = req.body;
     db.prepare('INSERT INTO products (id, group_id, name, description, github, demo, video, self_score, files, submitted_at, submitted_by, grade, feedback, graded_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
       .run(id, groupId, name, description, github, demo, video, selfScore, files, submittedAt || new Date().toISOString(), submittedBy, grade, feedback, gradedAt);
-    res.json({ success: true });
+    const ts = db.setUpdatedAt();
+    res.json({ success: true, updatedAt: ts });
   } catch (err) {
     res.status(500).json({ success: false, message: err.message });
   }
@@ -291,7 +387,8 @@ app.put('/api/products/:id', (req, res) => {
     const { name, description, github, demo, video, selfScore, files, grade, feedback, gradedAt } = req.body;
     db.prepare('UPDATE products SET name = COALESCE(?, name), description = COALESCE(?, description), github = COALESCE(?, github), demo = COALESCE(?, demo), video = COALESCE(?, video), self_score = COALESCE(?, self_score), files = COALESCE(?, files), grade = COALESCE(?, grade), feedback = COALESCE(?, feedback), graded_at = COALESCE(?, graded_at) WHERE id = ?')
       .run(name, description, github, demo, video, selfScore, files, grade, feedback, gradedAt, req.params.id);
-    res.json({ success: true });
+    const ts = db.setUpdatedAt();
+    res.json({ success: true, updatedAt: ts });
   } catch (err) {
     res.status(500).json({ success: false, message: err.message });
   }
@@ -309,7 +406,8 @@ app.post('/api/grades', (req, res) => {
       db.prepare('INSERT INTO grades (group_id, process_score, midterm_score, final_score, total_score, note, graded_by, graded_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)')
         .run(groupId, processScore, midtermScore, finalScore, totalScore, note, gradedBy, gradedAt || new Date().toISOString());
     }
-    res.json({ success: true });
+    const ts = db.setUpdatedAt();
+    res.json({ success: true, updatedAt: ts });
   } catch (err) {
     res.status(500).json({ success: false, message: err.message });
   }
@@ -363,4 +461,13 @@ app.listen(PORT, '0.0.0.0', () => {
   console.log(`   📁 Thư mục uploads    : ${uploadsDir}`);
   console.log('   💡 Nhấn Ctrl + C để dừng server');
   console.log('═══════════════════════════════════════════════════════════');
+
+  // Tự động Keep-Alive ping mỗi 10 phút trên Render để hạn chế ngủ đông
+  const externalUrl = process.env.RENDER_EXTERNAL_URL || 'https://ktpm-gwde.onrender.com';
+  if (process.env.RENDER || process.env.RENDER_EXTERNAL_URL) {
+    setInterval(() => {
+      fetch(`${externalUrl}/api/health`).catch(() => {});
+    }, 10 * 60 * 1000);
+  }
 });
+

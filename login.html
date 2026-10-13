@@ -110,11 +110,11 @@
       const email = document.getElementById('email').value.trim();
       const pwd = document.getElementById('pwd').value;
       
-      // Xác thực qua SQLite API khi chạy trên máy chủ
+      // Đồng bộ & khôi phục dữ liệu (nếu server vừa thức dậy) trước khi xác thực
       if (location.protocol.startsWith('http')) {
+        await syncFromSQLite();
         const res = await _api('/api/auth/login', 'POST', { email, password: pwd });
         if (res && res.success && res.user) {
-          await syncFromSQLite();
           document.getElementById('err').classList.remove('show');
           DB.setSession(res.user);
           window.location.href = 'dashboard.html';

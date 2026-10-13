@@ -3,15 +3,16 @@
 // ═══════════════════════════════════════════════════════════
 
 const K = {
-  USERS:    'ktpmud_users',
-  CLASSES:  'ktpmud_classes',     // Lớp học (nhiều lớp)
-  GROUPS:   'ktpmud_groups',      // Nhóm (thuộc 1 lớp)
-  REPORTS:  'ktpmud_reports',     // Báo cáo tuần (file đính kèm)
-  TASKS:    'ktpmud_tasks',       // Công việc (Kanban)
-  PRODUCTS: 'ktpmud_products',    // Sản phẩm cuối kỳ
-  GRADES:   'ktpmud_grades',      // Điểm
-  SESSION:  'ktpmud_session',     // Người dùng hiện tại
-  CUR_CLASS:'ktpmud_cur_class',   // Lớp đang xem
+  USERS:     'ktpmud_users',
+  CLASSES:   'ktpmud_classes',     // Lớp học (nhiều lớp)
+  GROUPS:    'ktpmud_groups',      // Nhóm (thuộc 1 lớp)
+  REPORTS:   'ktpmud_reports',     // Báo cáo tuần (file đính kèm)
+  TASKS:     'ktpmud_tasks',       // Công việc (Kanban)
+  PRODUCTS:  'ktpmud_products',    // Sản phẩm cuối kỳ
+  GRADES:    'ktpmud_grades',      // Điểm
+  SESSION:   'ktpmud_session',     // Người dùng hiện tại
+  CUR_CLASS: 'ktpmud_cur_class',   // Lớp đang xem
+  UPDATED_AT:'ktpmud_updated_at',  // Dấu thời gian đồng bộ dữ liệu
 };
 
 // ── Raw DB helpers ──────────────────────────────────────────
@@ -22,11 +23,22 @@ const _set = (k, v) => localStorage.setItem(k, JSON.stringify(v));
 // ── Server API sync helper ──────────────────────────────────
 const _api = async (url, method = 'GET', body = null) => {
   if (!location.protocol.startsWith('http')) return null;
+  const isMutation = method !== 'GET' && !url.includes('/auth/') && !url.includes('/restore');
+  let localTs = 0;
+  if (isMutation) {
+    localTs = Date.now();
+    localStorage.setItem(K.UPDATED_AT, String(localTs));
+  }
   try {
     const opts = { method, headers: { 'Content-Type': 'application/json' } };
     if (body) opts.body = JSON.stringify(body);
     const res = await fetch(url, opts);
-    return await res.json();
+    const json = await res.json();
+    if (isMutation && json && json.updatedAt) {
+      const cur = Number(localStorage.getItem(K.UPDATED_AT) || 0);
+      localStorage.setItem(K.UPDATED_AT, String(Math.max(cur, Number(json.updatedAt))));
+    }
+    return json;
   } catch (e) {
     return null;
   }
@@ -359,28 +371,52 @@ function seedIfNeeded(force = false) {
   console.log('✅ Seed data initialized');
 }
 
-// Đồng bộ dữ liệu tập trung từ SQLite Server
+// Đồng bộ dữ liệu 2 chiều thông minh giữa Trình duyệt và SQLite Server
 async function syncFromSQLite() {
   if (typeof window === 'undefined' || !location.protocol.startsWith('http')) return;
   try {
     const res = await _api('/api/bootstrap');
     if (res && res.success && res.data) {
-      _set(K.USERS, res.data.users);
-      _set(K.CLASSES, res.data.classes);
-      _set(K.GROUPS, res.data.groups);
-      _set(K.TASKS, res.data.tasks);
-      _set(K.REPORTS, res.data.reports);
-      _set(K.PRODUCTS, res.data.products);
-      _set(K.GRADES, res.data.grades);
+      const serverTs = Number(res.updatedAt || 0);
+      const localTs = Number(localStorage.getItem(K.UPDATED_AT) || 0);
 
-      // Kiểm tra lớp hiện tại có còn tồn tại không
-      const curCid = localStorage.getItem(K.CUR_CLASS);
-      if (curCid && curCid !== 'all' && !res.data.classes.some(c => c.id === curCid)) {
-        const firstClass = res.data.classes[0]?.id || '';
-        localStorage.setItem(K.CUR_CLASS, firstClass);
+      // Nếu Server vừa thức dậy sau ngủ đông (serverTs < localTs) và trình duyệt đang giữ bản lưu mới hơn:
+      // Tự động đẩy ngược dữ liệu từ trình duyệt lên khôi phục lại SQLite Server!
+      if (localTs > serverTs && DB.users().length > 0) {
+        await _api('/api/restore', 'POST', {
+          updatedAt: localTs,
+          data: {
+            users: DB.users(),
+            classes: DB.classes(),
+            groups: DB.groups(),
+            tasks: DB.tasks(),
+            reports: DB.reports(),
+            products: DB.products(),
+            grades: DB.grades()
+          }
+        });
+      } else {
+        // Ngược lại, cập nhật dữ liệu mới nhất từ Server về trình duyệt
+        _set(K.USERS, res.data.users);
+        _set(K.CLASSES, res.data.classes);
+        _set(K.GROUPS, res.data.groups);
+        _set(K.TASKS, res.data.tasks);
+        _set(K.REPORTS, res.data.reports);
+        _set(K.PRODUCTS, res.data.products);
+        _set(K.GRADES, res.data.grades);
+        if (serverTs > 0) {
+          localStorage.setItem(K.UPDATED_AT, String(serverTs));
+        }
+
+        // Kiểm tra lớp hiện tại có còn tồn tại không
+        const curCid = localStorage.getItem(K.CUR_CLASS);
+        if (curCid && curCid !== 'all' && !res.data.classes.some(c => c.id === curCid)) {
+          const firstClass = res.data.classes[0]?.id || 'all';
+          localStorage.setItem(K.CUR_CLASS, firstClass);
+        }
       }
 
-      // Cập nhật lại giao diện ngay sau khi đồng bộ xong từ SQLite
+      // Cập nhật lại giao diện ngay sau khi đồng bộ xong
       if (typeof window.render === 'function') {
         try { window.render(); } catch (e) { console.warn('Re-render error:', e); }
       }
@@ -393,5 +429,6 @@ async function syncFromSQLite() {
 if (typeof window !== 'undefined' && location.protocol.startsWith('http')) {
   syncFromSQLite();
 }
+
 
 
