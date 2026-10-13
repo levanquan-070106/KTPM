@@ -28,28 +28,29 @@ function render() {
   const reports = DB.reports();
   const tasks = DB.tasks();
 
-  // Get all students across these groups
-  let students = [];
-  groups.forEach(g => {
-    const c = DB.findClass(g.classId);
-    g.members.forEach(mid => {
-      const u = DB.findUserById(mid);
-      if (u) {
-        students.push({ user: u, group: g, classroom: c });
-      }
-    });
+  // Lấy toàn bộ sinh viên thuộc lớp đang chọn (kể cả sinh viên chưa vào nhóm)
+  const rawStudents = cid
+    ? DB.studentsByClass(cid)
+    : DB.users().filter(u => (u.role === 'sinhvien' || u.role === 'nhomt') && myClasses.some(c => c.id === DB.userClassId(u)));
+
+  let students = rawStudents.map(u => {
+    const g = DB.groupOfUser(u.id);
+    const c = DB.findClass(DB.userClassId(u) || g?.classId);
+    return { user: u, group: g || null, classroom: c || null };
   });
 
   // Filter
-  if (filterGroupId !== 'all') {
-    students = students.filter(s => s.group.id === filterGroupId);
+  if (filterGroupId === 'none') {
+    students = students.filter(s => !s.group);
+  } else if (filterGroupId !== 'all') {
+    students = students.filter(s => s.group?.id === filterGroupId);
   }
   if (searchText) {
     const q = searchText.toLowerCase();
     students = students.filter(s =>
       s.user.name.toLowerCase().includes(q) ||
       s.user.email.toLowerCase().includes(q) ||
-      s.group.name.toLowerCase().includes(q)
+      (s.group?.name || '').toLowerCase().includes(q)
     );
   }
 
@@ -60,11 +61,25 @@ function render() {
     <div class="page-header-row">
       <div>
         <h1>🎓 Danh sách sinh viên</h1>
-        <p class="page-desc">${cls ? cls.name + ' · ' : ''}${totalSV} sinh viên trong ${groups.length} nhóm dự án</p>
+        <p class="page-desc">${cls ? cls.name : 'Tất cả các lớp'} · ${totalSV} sinh viên · ${groups.length} nhóm dự án</p>
       </div>
       <div class="flex gap-2">
+        <button class="btn btn-secondary" onclick="navigate('users.html')">➕ Thêm SV vào lớp</button>
         <button class="btn btn-primary" onclick="exportStudentExcel()">📥 Xuất Excel (.xlsx)</button>
       </div>
+    </div>
+
+    <!-- Bộ lọc nhanh theo Lớp học -->
+    <div class="flex gap-2 mb-4" style="flex-wrap:wrap">
+      <button class="btn ${!cid ? 'btn-primary' : 'btn-secondary'} btn-sm" onclick="switchClass('all')">
+        🌐 Tất cả các lớp
+      </button>
+      ${myClasses.map(c => {
+        const cnt = DB.studentsByClass(c.id).length;
+        return `<button class="btn ${cid === c.id ? 'btn-primary' : 'btn-secondary'} btn-sm" onclick="switchClass('${c.id}')">
+          🏫 ${c.name} (${cnt} SV)
+        </button>`;
+      }).join('')}
     </div>
 
     <div class="stat-grid" style="grid-template-columns:repeat(4,1fr);margin-bottom:20px">
@@ -92,8 +107,9 @@ function render() {
           <input class="form-control" id="search-input" placeholder="🔍 Tìm theo tên, email hoặc nhóm..."
             value="${searchText}" oninput="handleSearch(this.value)"/>
         </div>
-        <select class="form-control" id="group-filter" style="width:200px" onchange="handleGroupFilter(this.value)">
+        <select class="form-control" id="group-filter" style="width:220px" onchange="handleGroupFilter(this.value)">
           <option value="all">Tất cả các nhóm</option>
+          <option value="none" ${filterGroupId === 'none' ? 'selected' : ''}>⚠️ Chưa có nhóm</option>
           ${groups.map(g => `<option value="${g.id}" ${filterGroupId === g.id ? 'selected' : ''}>${g.name}</option>`).join('')}
         </select>
       </div>
@@ -117,12 +133,12 @@ function render() {
         </thead>
         <tbody>
           ${students.length === 0 ? `
-            <tr><td colspan="10"><div class="empty"><div class="empty-icon">🎓</div><p>Không tìm thấy sinh viên nào</p></div></td></tr>
+            <tr><td colspan="10"><div class="empty"><div class="empty-icon">🎓</div><p>Không tìm thấy sinh viên nào trong lớp này</p></div></td></tr>
           ` : students.map((s, idx) => {
             const uTasks = tasks.filter(t => t.assignee === s.user.id);
             const doneTasks = uTasks.filter(t => t.status === 'done').length;
             const pct = uTasks.length > 0 ? Math.round((doneTasks / uTasks.length) * 100) : 0;
-            const grade = DB.gradeByGroup(s.group.id);
+            const grade = s.group ? DB.gradeByGroup(s.group.id) : null;
 
             return `<tr>
               <td class="text-muted">${idx + 1}</td>
@@ -134,7 +150,7 @@ function render() {
               </td>
               <td class="td-muted">${s.user.email}</td>
               <td>${s.user.role === 'nhomt' ? '<span class="badge badge-gray font-bold">NT</span>' : '<span class="badge badge-outline">SV</span>'}</td>
-              <td><span class="chip font-semibold">${s.group.name}</span></td>
+              <td>${s.group ? `<span class="chip font-semibold">${s.group.name}</span>` : '<span class="badge badge-outline">Chưa có nhóm</span>'}</td>
               <td class="text-xs text-secondary">${s.classroom?.name || '—'}</td>
               <td>
                 <span class="font-bold text-success">${doneTasks}</span><span class="text-muted">/${uTasks.length} task</span>

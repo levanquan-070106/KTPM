@@ -65,7 +65,7 @@ function getFullGroups() {
 // 1. Bootstrap: Lấy toàn bộ dữ liệu ban đầu cho client
 app.get('/api/bootstrap', (req, res) => {
   try {
-    const users = db.prepare('SELECT id, name, email, password, role FROM users').all();
+    const users = db.prepare('SELECT id, name, email, password, role, class_id as classId FROM users').all();
     const classes = db.prepare('SELECT id, name, code, semester, lecturer_id as lecturerId, total_weeks as totalWeeks, sem_start as semStart, active, created_at as createdAt FROM classes').all()
       .map(c => ({ ...c, active: Boolean(c.active) }));
     const groups = getFullGroups();
@@ -100,8 +100,8 @@ app.post('/api/restore', (req, res) => {
     try {
       if (Array.isArray(data.users) && data.users.length > 0) {
         db.prepare('DELETE FROM users').run();
-        const insU = db.prepare('INSERT INTO users (id, name, email, password, role) VALUES (?, ?, ?, ?, ?)');
-        data.users.forEach(u => insU.run(u.id, u.name, u.email, u.password || '123456', u.role));
+        const insU = db.prepare('INSERT INTO users (id, name, email, password, role, class_id) VALUES (?, ?, ?, ?, ?, ?)');
+        data.users.forEach(u => insU.run(u.id, u.name, u.email, u.password || '123456', u.role, u.classId || null));
       }
 
       if (Array.isArray(data.classes)) {
@@ -115,10 +115,14 @@ app.post('/api/restore', (req, res) => {
         db.prepare('DELETE FROM groups').run();
         const insG = db.prepare('INSERT INTO groups (id, class_id, name, project, tech, leader_id, description, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)');
         const insM = db.prepare('INSERT INTO group_members (group_id, user_id) VALUES (?, ?)');
+        const updUClass = db.prepare('UPDATE users SET class_id = COALESCE(class_id, ?) WHERE id = ?');
         data.groups.forEach(g => {
           insG.run(g.id, g.classId, g.name, g.project || '', g.tech || '', g.leaderId || '', g.description || '', g.createdAt || new Date().toISOString());
           if (Array.isArray(g.members)) {
-            g.members.forEach(uid => insM.run(g.id, uid));
+            g.members.forEach(uid => {
+              insM.run(g.id, uid);
+              updUClass.run(g.classId, uid);
+            });
           }
         });
       }
@@ -167,7 +171,7 @@ app.post('/api/auth/login', (req, res) => {
     if (!email || !password) return res.status(400).json({ success: false, message: 'Vui lòng nhập email và mật khẩu' });
 
     const q = email.trim().toLowerCase();
-    const user = db.prepare('SELECT id, name, email, password, role FROM users WHERE LOWER(email) = ? OR LOWER(email) = ?').get(q, q.replace('@edu.vn', '@ktpmud.edu'));
+    const user = db.prepare('SELECT id, name, email, password, role, class_id as classId FROM users WHERE LOWER(email) = ? OR LOWER(email) = ?').get(q, q.replace('@edu.vn', '@ktpmud.edu'));
 
     if (!user || user.password !== password) {
       return res.status(401).json({ success: false, message: 'Email hoặc mật khẩu không đúng!' });
@@ -182,8 +186,8 @@ app.post('/api/auth/login', (req, res) => {
 // 3. Users CRUD
 app.post('/api/users', (req, res) => {
   try {
-    const { id, name, email, password, role } = req.body;
-    db.prepare('INSERT INTO users (id, name, email, password, role) VALUES (?, ?, ?, ?, ?)').run(id, name, email, password, role);
+    const { id, name, email, password, role, classId } = req.body;
+    db.prepare('INSERT INTO users (id, name, email, password, role, class_id) VALUES (?, ?, ?, ?, ?, ?)').run(id, name, email, password, role, classId || null);
     const ts = db.setUpdatedAt();
     res.json({ success: true, updatedAt: ts, message: 'Đã thêm người dùng' });
   } catch (err) {
@@ -193,11 +197,13 @@ app.post('/api/users', (req, res) => {
 
 app.put('/api/users/:id', (req, res) => {
   try {
-    const { name, email, password, role } = req.body;
+    const { name, email, password, role, classId } = req.body;
     if (password) {
-      db.prepare('UPDATE users SET name = COALESCE(?, name), email = COALESCE(?, email), password = ?, role = COALESCE(?, role) WHERE id = ?').run(name, email, password, role, req.params.id);
+      db.prepare('UPDATE users SET name = COALESCE(?, name), email = COALESCE(?, email), password = ?, role = COALESCE(?, role), class_id = COALESCE(?, class_id) WHERE id = ?')
+        .run(name, email, password, role, classId ?? null, req.params.id);
     } else {
-      db.prepare('UPDATE users SET name = COALESCE(?, name), email = COALESCE(?, email), role = COALESCE(?, role) WHERE id = ?').run(name, email, role, req.params.id);
+      db.prepare('UPDATE users SET name = COALESCE(?, name), email = COALESCE(?, email), role = COALESCE(?, role), class_id = COALESCE(?, class_id) WHERE id = ?')
+        .run(name, email, role, classId ?? null, req.params.id);
     }
     const ts = db.setUpdatedAt();
     res.json({ success: true, updatedAt: ts });
@@ -269,7 +275,11 @@ app.post('/api/groups', (req, res) => {
 
     if (Array.isArray(members)) {
       const ins = db.prepare('INSERT INTO group_members (group_id, user_id) VALUES (?, ?)');
-      members.forEach(m => ins.run(id, m));
+      const updU = db.prepare('UPDATE users SET class_id = ? WHERE id = ?');
+      members.forEach(m => {
+        ins.run(id, m);
+        if (classId) updU.run(classId, m);
+      });
     }
     const ts = db.setUpdatedAt();
     res.json({ success: true, updatedAt: ts });
@@ -280,14 +290,19 @@ app.post('/api/groups', (req, res) => {
 
 app.put('/api/groups/:id', (req, res) => {
   try {
-    const { name, project, tech, leaderId, description, members } = req.body;
-    db.prepare('UPDATE groups SET name = COALESCE(?, name), project = COALESCE(?, project), tech = COALESCE(?, tech), leader_id = COALESCE(?, leader_id), description = COALESCE(?, description) WHERE id = ?')
-      .run(name, project, tech, leaderId, description, req.params.id);
+    const { name, project, tech, leaderId, description, members, classId } = req.body;
+    db.prepare('UPDATE groups SET name = COALESCE(?, name), project = COALESCE(?, project), tech = COALESCE(?, tech), leader_id = COALESCE(?, leader_id), description = COALESCE(?, description), class_id = COALESCE(?, class_id) WHERE id = ?')
+      .run(name, project, tech, leaderId, description, classId ?? null, req.params.id);
 
     if (Array.isArray(members)) {
       db.prepare('DELETE FROM group_members WHERE group_id = ?').run(req.params.id);
       const ins = db.prepare('INSERT INTO group_members (group_id, user_id) VALUES (?, ?)');
-      members.forEach(m => ins.run(req.params.id, m));
+      const grpRow = db.prepare('SELECT class_id FROM groups WHERE id = ?').get(req.params.id);
+      const updU = db.prepare('UPDATE users SET class_id = ? WHERE id = ?');
+      members.forEach(m => {
+        ins.run(req.params.id, m);
+        if (grpRow?.class_id) updU.run(grpRow.class_id, m);
+      });
     }
     const ts = db.setUpdatedAt();
     res.json({ success: true, updatedAt: ts });

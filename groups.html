@@ -25,7 +25,7 @@
         </div>
         <div class="form-group">
           <label class="form-label">Lớp học <span class="form-required">*</span></label>
-          <select id="g-class" class="form-control" required></select>
+          <select id="g-class" class="form-control" onchange="onModalClassChange(this.value)" required></select>
         </div>
       </div>
 
@@ -40,7 +40,7 @@
           <input id="g-tech" class="form-control" placeholder="React, Node.js, SQLite..."/>
         </div>
         <div class="form-group">
-          <label class="form-label">Nhóm trưởng <span class="form-required">*</span></label>
+          <label class="form-label">Nhóm trưởng (trong lớp) <span class="form-required">*</span></label>
           <select id="g-leader" class="form-control" onchange="onLeaderChange(this.value)" required>
             <option value="">-- Chọn Nhóm trưởng --</option>
           </select>
@@ -50,13 +50,13 @@
       <!-- Chọn thành viên nhóm -->
       <div class="form-group">
         <div class="flex items-center justify-between mb-1">
-          <label class="form-label" style="margin-bottom:0">👥 Chọn thành viên trong nhóm</label>
+          <label class="form-label" id="member-class-label" style="margin-bottom:0">👥 Chọn thành viên trong nhóm</label>
           <span class="text-xs text-muted" id="selected-count">0 thành viên đã chọn</span>
         </div>
-        <input type="text" id="member-search" class="form-control mb-2" placeholder="🔍 Tìm nhanh sinh viên theo tên hoặc email..." oninput="filterMemberList(this.value)" style="font-size:12px;padding:6px 10px"/>
+        <input type="text" id="member-search" class="form-control mb-2" placeholder="🔍 Tìm nhanh sinh viên trong lớp này..." oninput="filterMemberList(this.value)" style="font-size:12px;padding:6px 10px"/>
         <div id="member-checklist" style="max-height:190px;overflow-y:auto;border:1px solid var(--border);border-radius:var(--radius-sm);padding:8px;background:var(--gray-50);display:flex;flex-direction:column;gap:6px">
         </div>
-        <div class="form-hint">Tích chọn các sinh viên thuộc nhóm này (Nhóm trưởng sẽ tự động được thêm vào nhóm)</div>
+        <div class="form-hint">Chỉ hiển thị sinh viên thuộc lớp học đang chọn. Muốn thêm sinh viên mới vào lớp, vào mục <strong>Tài khoản</strong>.</div>
       </div>
 
       <div class="form-group">
@@ -235,18 +235,33 @@ window.openGroupModal = function(id = '') {
   document.getElementById('member-search').value = '';
 
   const cls = DB.classes().filter(c => c.lecturerId === user.id);
+  const selectedClassId = g?.classId || DB.curClassId() || cls[0]?.id || '';
   const cSel = document.getElementById('g-class');
-  cSel.innerHTML = cls.map(c => `<option value="${c.id}" ${g?.classId === c.id || DB.curClassId() === c.id ? 'selected' : ''}>${c.name}</option>`).join('');
-
-  const students = DB.users().filter(u => u.role === 'nhomt' || u.role === 'sinhvien');
-  const lSel = document.getElementById('g-leader');
-  lSel.innerHTML = '<option value="">-- Chọn Nhóm trưởng --</option>' +
-    students.map(u => `<option value="${u.id}" ${g?.leaderId === u.id ? 'selected' : ''}>${u.name} (${u.email})</option>`).join('');
+  cSel.innerHTML = cls.map(c => `<option value="${c.id}" ${c.id === selectedClassId ? 'selected' : ''}>${c.name}</option>`).join('');
 
   selectedMemberIds = new Set(g?.members || []);
-  renderMemberChecklist('');
+  populateModalStudentsByClass(selectedClassId, g?.leaderId || '');
   openModal('m-group');
 };
+
+window.onModalClassChange = function(classId) {
+  selectedMemberIds = new Set();
+  populateModalStudentsByClass(classId, '');
+};
+
+function populateModalStudentsByClass(classId, defaultLeaderId = '') {
+  const clsObj = DB.findClass(classId);
+  const lbl = document.getElementById('member-class-label');
+  if (lbl) lbl.textContent = `👥 Chọn thành viên trong nhóm (${clsObj?.name || 'Lớp hiện tại'})`;
+
+  // Chỉ lấy sinh viên thuộc đúng lớp này
+  const students = DB.studentsByClass(classId);
+  const lSel = document.getElementById('g-leader');
+  lSel.innerHTML = `<option value="">-- Chọn Nhóm trưởng (${clsObj?.name || ''}) --</option>` +
+    students.map(u => `<option value="${u.id}" ${defaultLeaderId === u.id ? 'selected' : ''}>${u.name} (${u.email})</option>`).join('');
+
+  renderMemberChecklist(document.getElementById('member-search')?.value || '');
+}
 
 window.onLeaderChange = function(leaderId) {
   if (leaderId) {
@@ -279,16 +294,18 @@ window.filterMemberList = function(query) {
 };
 
 function renderMemberChecklist(query = '') {
-  const students = DB.users().filter(u => u.role === 'nhomt' || u.role === 'sinhvien');
-  const validClasses = DB.classes();
-  const allGroups = DB.groups().filter(grp => validClasses.some(c => c.id === grp.classId));
+  const classId = document.getElementById('g-class')?.value;
+  const clsObj = DB.findClass(classId);
+  // Chỉ lấy sinh viên và nhóm thuộc đúng lớp học đang chọn
+  const students = DB.studentsByClass(classId);
+  const classGroups = DB.groupsByClass(classId);
   const q = query.trim().toLowerCase();
   const filtered = students.filter(u => !q || u.name.toLowerCase().includes(q) || u.email.toLowerCase().includes(q));
   const leaderId = document.getElementById('g-leader')?.value;
 
   const container = document.getElementById('member-checklist');
   if (filtered.length === 0) {
-    container.innerHTML = '<div class="text-xs text-muted text-center py-2">Không tìm thấy sinh viên phù hợp</div>';
+    container.innerHTML = `<div class="text-xs text-muted text-center py-2">Chưa có sinh viên nào trong lớp ${clsObj?.name || ''} (Vào mục Tài khoản để thêm sinh viên vào lớp)</div>`;
     updateSelectedCount();
     return;
   }
@@ -296,8 +313,7 @@ function renderMemberChecklist(query = '') {
   container.innerHTML = filtered.map(u => {
     const isChecked = selectedMemberIds.has(u.id);
     const isLeader = u.id === leaderId;
-    const otherGroup = allGroups.find(grp => grp.id !== currentEditingGroupId && grp.members.includes(u.id));
-    const otherCls = otherGroup ? DB.findClass(otherGroup.classId) : null;
+    const otherGroup = classGroups.find(grp => grp.id !== currentEditingGroupId && grp.members.includes(u.id));
 
     return `
       <label style="display:flex;align-items:center;justify-content:space-between;padding:6px 8px;background:#fff;border:1px solid ${isChecked ? 'var(--gray-900)' : 'var(--border)'};border-radius:5px;cursor:pointer;font-size:12px">
@@ -309,7 +325,7 @@ function renderMemberChecklist(query = '') {
         <div class="flex gap-1">
           ${isLeader ? '<span class="badge badge-black">👑 Nhóm trưởng</span>' : ''}
           ${otherGroup
-            ? `<span class="badge badge-gray" title="Thuộc lớp ${otherCls?.name || ''}">Đang ở ${otherGroup.name}${otherCls ? ' · ' + otherCls.name : ''}</span>`
+            ? `<span class="badge badge-gray">Đang ở ${otherGroup.name}</span>`
             : '<span class="badge badge-outline">Chưa có nhóm</span>'}
         </div>
       </label>
@@ -332,7 +348,7 @@ window.saveGroup = function(e) {
   selectedMemberIds.add(leaderId);
   const members = Array.from(selectedMemberIds);
 
-  // Tự động gỡ các thành viên được chọn khỏi nhóm cũ (nếu trước đó đang ở nhóm khác)
+  // Tự động gỡ các thành viên được chọn khỏi nhóm cũ trong lớp (nếu trước đó đang ở nhóm khác)
   DB.groups().forEach(oldGrp => {
     if (oldGrp.id !== id && oldGrp.members.some(m => members.includes(m))) {
       const remain = oldGrp.members.filter(m => !members.includes(m));
@@ -341,8 +357,11 @@ window.saveGroup = function(e) {
     }
   });
 
-  // Cập nhật role của leader thành nhomt
-  DB.updateUser({ id: leaderId, role: 'nhomt' });
+  // Cập nhật role của leader thành nhomt và gán classId cho các thành viên
+  DB.updateUser({ id: leaderId, role: 'nhomt', classId });
+  members.forEach(mid => {
+    if (mid !== leaderId) DB.updateUser({ id: mid, classId });
+  });
 
   const obj = {
     name, classId, project,
@@ -367,8 +386,9 @@ window.saveGroup = function(e) {
 window.openMembersModal = function(gid) {
   const g = DB.findGroup(gid);
   if (!g) return;
+  const cls = DB.findClass(g.classId);
   document.getElementById('mem-gid').value = gid;
-  document.getElementById('m-mem-title').textContent = `👥 Thành viên – ${g.name} (${g.members.length})`;
+  document.getElementById('m-mem-title').textContent = `👥 Thành viên – ${g.name} (${cls?.name || ''})`;
 
   const members = g.members.map(id => DB.findUserById(id)).filter(Boolean);
   document.getElementById('m-mem-list').innerHTML = members.length === 0 ?
@@ -396,14 +416,13 @@ window.openMembersModal = function(gid) {
       }).join('')}
     </div>`;
 
-  // Populate dropdown sinh viên chưa ở trong nhóm này
-  const available = DB.users().filter(u => (u.role === 'sinhvien' || u.role === 'nhomt') && !g.members.includes(u.id));
+  // Chỉ lấy sinh viên thuộc đúng lớp của nhóm này (g.classId)
+  const available = DB.studentsByClass(g.classId).filter(u => !g.members.includes(u.id));
   const sel = document.getElementById('mem-add-sel');
-  sel.innerHTML = '<option value="">-- Chọn sinh viên để thêm vào nhóm --</option>' +
+  sel.innerHTML = `<option value="">-- Chọn sinh viên lớp ${cls?.name || ''} để thêm --</option>` +
     available.map(u => {
       const curGrp = DB.groupOfUser(u.id);
-      const curCls = curGrp ? DB.findClass(curGrp.classId) : null;
-      return `<option value="${u.id}">${u.name} (${u.email})${curGrp ? ' - Đang ở ' + curGrp.name + (curCls ? ' · ' + curCls.name : '') : ' - Chưa có nhóm'}</option>`;
+      return `<option value="${u.id}">${u.name} (${u.email})${curGrp ? ' - Đang ở ' + curGrp.name : ' - Chưa có nhóm'}</option>`;
     }).join('');
 
   openModal('m-members');

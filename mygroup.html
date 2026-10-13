@@ -112,13 +112,15 @@ function render() {
   const group = DB.groupOfUser(user.id);
 
   if (!group) {
-    const allGroups = DB.groups();
+    const myCid = DB.userClassId(user);
+    const myCls = myCid ? DB.findClass(myCid) : null;
+    const allGroups = myCid ? DB.groupsByClass(myCid) : DB.groups();
     el.innerHTML = `
       <div class="card" style="text-align:center;padding:48px 24px;margin-bottom:24px">
         <div style="font-size:48px;margin-bottom:12px">👥</div>
-        <h2 style="font-size:18px;font-weight:800;margin-bottom:6px">Bạn chưa tham gia nhóm dự án nào</h2>
+        <h2 style="font-size:18px;font-weight:800;margin-bottom:6px">Bạn chưa tham gia nhóm dự án nào${myCls ? ' (' + myCls.name + ')' : ''}</h2>
         <p class="text-secondary text-sm" style="max-width:480px;margin:0 auto 20px">
-          Bạn có thể tự khởi tạo một nhóm dự án mới (và thêm các bạn cùng nhóm), hoặc chọn tham gia vào một nhóm đã được tạo sẵn bên dưới.
+          Bạn có thể tự khởi tạo một nhóm dự án mới (và thêm các bạn cùng lớp), hoặc chọn tham gia vào một nhóm thuộc lớp của bạn bên dưới.
         </p>
         <div class="flex gap-3 justify-center">
           <button class="btn btn-primary" onclick="openCreateGroupModal()">➕ Tạo nhóm mới & Thêm thành viên</button>
@@ -128,7 +130,7 @@ function render() {
       ${allGroups.length > 0 ? `
         <div class="card">
           <div class="card-header">
-            <div class="card-title">🔗 Hoặc tham gia nhóm dự án có sẵn (${allGroups.length} nhóm)</div>
+            <div class="card-title">🔗 Hoặc tham gia nhóm dự án trong lớp ${myCls ? myCls.name : ''} (${allGroups.length} nhóm)</div>
           </div>
           <div class="grid-auto">
             ${allGroups.map(g => {
@@ -315,20 +317,26 @@ function render() {
 
 // ── Tạo nhóm dự án mới ──
 window.openCreateGroupModal = function() {
-  const classes = DB.classes();
+  const myCid = DB.userClassId(user);
+  const classes = myCid ? DB.classes().filter(c => c.id === myCid) : DB.classes();
   const cSel = document.getElementById('cg-class');
   cSel.innerHTML = classes.map(c => `<option value="${c.id}">${c.name} (${c.semester})</option>`).join('');
+  cSel.onchange = () => renderCreateGroupStudentList(cSel.value);
 
+  renderCreateGroupStudentList(cSel.value);
+  openModal('m-create-group');
+};
+
+function renderCreateGroupStudentList(cid) {
   const allGroups = DB.groups();
-  const freeStudents = DB.users().filter(u =>
+  const freeStudents = DB.studentsByClass(cid).filter(u =>
     u.id !== user.id &&
-    (u.role === 'sinhvien' || u.role === 'nhomt') &&
     !allGroups.some(g => g.members.includes(u.id))
   );
 
   const listEl = document.getElementById('cg-members-list');
   listEl.innerHTML = freeStudents.length === 0 ?
-    '<div class="text-xs text-muted text-center py-2">Không còn sinh viên nào chưa có nhóm</div>' :
+    '<div class="text-xs text-muted text-center py-2">Không còn sinh viên nào chưa có nhóm trong lớp này</div>' :
     freeStudents.map(u => `
       <label style="display:flex;align-items:center;gap:8px;padding:6px 8px;background:#fff;border:1px solid var(--border);border-radius:4px;cursor:pointer;font-size:12px">
         <input type="checkbox" class="cg-mem-cb" value="${u.id}" style="width:15px;height:15px"/>
@@ -336,9 +344,7 @@ window.openCreateGroupModal = function() {
         <span class="text-muted">(${u.email})</span>
       </label>
     `).join('');
-
-  openModal('m-create-group');
-};
+}
 
 window.createNewGroup = function(e) {
   e.preventDefault();
@@ -357,9 +363,9 @@ window.createNewGroup = function(e) {
   const members = [user.id, ...checkedIds];
 
   // Cập nhật user hiện tại thành Nhóm trưởng
-  DB.updateUser({ id: user.id, role: 'nhomt' });
+  DB.updateUser({ id: user.id, role: 'nhomt', classId });
   const sess = DB.session();
-  if (sess) { sess.role = 'nhomt'; DB.setSession(sess); }
+  if (sess) { sess.role = 'nhomt'; sess.classId = classId; DB.setSession(sess); }
 
   DB.addGroup({
     id: uid(),
@@ -389,18 +395,17 @@ window.joinGroup = function(gid) {
   render();
 };
 
-// ── Thêm thành viên nhanh ──
+// ── Thêm thành viên nhanh (chỉ trong cùng lớp) ──
 window.openAddMemModal = function() {
   const group = DB.groupOfUser(user.id);
   if (!group) return;
   const allGroups = DB.groups();
-  const freeUsers = DB.users().filter(u =>
-    (u.role === 'sinhvien' || u.role === 'nhomt') &&
+  const freeUsers = DB.studentsByClass(group.classId).filter(u =>
     !allGroups.some(g => g.members.includes(u.id))
   );
 
   const sel = document.getElementById('am-select');
-  sel.innerHTML = '<option value="">-- Chọn sinh viên --</option>' +
+  sel.innerHTML = '<option value="">-- Chọn sinh viên cùng lớp chưa có nhóm --</option>' +
     freeUsers.map(u => `<option value="${u.id}">${u.name} (${u.email})</option>`).join('');
 
   openModal('m-add-mem');

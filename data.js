@@ -57,6 +57,22 @@ const DB = {
     return users.find(u => u.email.toLowerCase().split('@')[0] === userPart);
   },
   findUserById(id) { return this.users().find(u => u.id === id); },
+  userClassId(u) {
+    if (!u) return null;
+    if (typeof u === 'string') u = this.findUserById(u);
+    if (!u) return null;
+    if (u.classId) return u.classId;
+    const grp = this.groupOfUser(u.id);
+    if (grp?.classId) return grp.classId;
+    if (['u3','u4','u5','u6','u7','u8'].includes(u.id)) return 'c1';
+    if (['u9','u10','u11','u12'].includes(u.id)) return 'c2';
+    return null;
+  },
+  studentsByClass(cid) {
+    const students = this.users().filter(u => u.role === 'sinhvien' || u.role === 'nhomt');
+    if (!cid || cid === 'all') return students;
+    return students.filter(u => this.userClassId(u) === cid);
+  },
   addUser(u) {
     const arr = this.users(); arr.push(u); _set(K.USERS, arr);
     _api('/api/users', 'POST', u);
@@ -98,12 +114,24 @@ const DB = {
   groupOfUser(uid) { return this.groups().find(g => g.members.includes(uid)); },
   addGroup(g) {
     const arr = this.groups(); arr.push(g); _set(K.GROUPS, arr);
+    if (g.classId && Array.isArray(g.members)) {
+      const uArr = this.users().map(u => g.members.includes(u.id) ? {...u, classId: g.classId} : u);
+      _set(K.USERS, uArr);
+    }
     _api('/api/groups', 'POST', g);
   },
   updateGroup(upd) {
     const arr = this.groups();
     const i = arr.findIndex(g => g.id === upd.id);
-    if (i >= 0) { arr[i] = {...arr[i], ...upd}; _set(K.GROUPS, arr); }
+    if (i >= 0) {
+      arr[i] = {...arr[i], ...upd};
+      _set(K.GROUPS, arr);
+      const cid = arr[i].classId;
+      if (cid && Array.isArray(arr[i].members)) {
+        const uArr = this.users().map(u => arr[i].members.includes(u.id) ? {...u, classId: cid} : u);
+        _set(K.USERS, uArr);
+      }
+    }
     _api(`/api/groups/${upd.id}`, 'PUT', upd);
   },
   deleteGroup(id) {
@@ -291,20 +319,20 @@ function seedIfNeeded(force = false) {
 
   if (!force && users.length > 0 && hasClasses && hasNewUser) return;
 
-  // Users
+  // Users (Phân tách rõ sinh viên thuộc từng lớp học: c1 = K68A, c2 = K68B)
   _set(K.USERS, [
-    { id:'u1', name:'TS. Hoàng Quang Huy',  email:'gv1@edu.vn', password:'123456', role:'giaovien' },
-    { id:'u2', name:'PGS. Nguyễn Thị Lan',  email:'gv2@edu.vn', password:'123456', role:'giaovien' },
-    { id:'u3', name:'Lê Văn Quân',           email:'nt1@edu.vn', password:'123456', role:'nhomt' },
-    { id:'u4', name:'Đỗ Xuân Nguyện',        email:'sv1@edu.vn', password:'123456', role:'sinhvien' },
-    { id:'u5', name:'Trần Thị Mai',          email:'sv2@edu.vn', password:'123456', role:'sinhvien' },
-    { id:'u6', name:'Phạm Minh Tú',          email:'nt2@edu.vn', password:'123456', role:'nhomt' },
-    { id:'u7', name:'Nguyễn Bảo Châu',       email:'sv3@edu.vn', password:'123456', role:'sinhvien' },
-    { id:'u8', name:'Hoàng Thị Hà',          email:'sv4@edu.vn', password:'123456', role:'sinhvien' },
-    { id:'u9', name:'Vũ Công Đức',           email:'nt3@edu.vn', password:'123456', role:'nhomt' },
-    { id:'u10',name:'Bùi Thị Lan',           email:'sv5@edu.vn', password:'123456', role:'sinhvien' },
-    { id:'u11',name:'Cao Văn Nam',           email:'sv6@edu.vn', password:'123456', role:'sinhvien' },
-    { id:'u12',name:'Đinh Thị Thảo',         email:'sv7@edu.vn', password:'123456', role:'sinhvien' },
+    { id:'u1', name:'TS. Hoàng Quang Huy',  email:'gv1@edu.vn', password:'123456', role:'giaovien', classId:null },
+    { id:'u2', name:'PGS. Nguyễn Thị Lan',  email:'gv2@edu.vn', password:'123456', role:'giaovien', classId:null },
+    { id:'u3', name:'Lê Văn Quân',           email:'nt1@edu.vn', password:'123456', role:'nhomt',    classId:'c1' },
+    { id:'u4', name:'Đỗ Xuân Nguyện',        email:'sv1@edu.vn', password:'123456', role:'sinhvien', classId:'c1' },
+    { id:'u5', name:'Trần Thị Mai',          email:'sv2@edu.vn', password:'123456', role:'sinhvien', classId:'c1' },
+    { id:'u6', name:'Phạm Minh Tú',          email:'nt2@edu.vn', password:'123456', role:'nhomt',    classId:'c1' },
+    { id:'u7', name:'Nguyễn Bảo Châu',       email:'sv3@edu.vn', password:'123456', role:'sinhvien', classId:'c1' },
+    { id:'u8', name:'Hoàng Thị Hà',          email:'sv4@edu.vn', password:'123456', role:'sinhvien', classId:'c1' },
+    { id:'u9', name:'Vũ Công Đức',           email:'nt3@edu.vn', password:'123456', role:'nhomt',    classId:'c2' },
+    { id:'u10',name:'Bùi Thị Lan',           email:'sv5@edu.vn', password:'123456', role:'sinhvien', classId:'c2' },
+    { id:'u11',name:'Cao Văn Nam',           email:'sv6@edu.vn', password:'123456', role:'sinhvien', classId:'c2' },
+    { id:'u12',name:'Đinh Thị Thảo',         email:'sv7@edu.vn', password:'123456', role:'sinhvien', classId:'c2' },
   ]);
 
   // Classes
@@ -380,13 +408,20 @@ async function syncFromSQLite() {
       const serverTs = Number(res.updatedAt || 0);
       const localTs = Number(localStorage.getItem(K.UPDATED_AT) || 0);
 
+      // Chuẩn hóa classId cho user trên trình duyệt nếu chưa có
+      const normalizedLocalUsers = DB.users().map(u => ({
+        ...u,
+        classId: (u.role === 'sinhvien' || u.role === 'nhomt') ? DB.userClassId(u) : null
+      }));
+      if (normalizedLocalUsers.length > 0) _set(K.USERS, normalizedLocalUsers);
+
       // Nếu Server vừa thức dậy sau ngủ đông (serverTs < localTs) và trình duyệt đang giữ bản lưu mới hơn:
       // Tự động đẩy ngược dữ liệu từ trình duyệt lên khôi phục lại SQLite Server!
-      if (localTs > serverTs && DB.users().length > 0) {
+      if (localTs > serverTs && normalizedLocalUsers.length > 0) {
         await _api('/api/restore', 'POST', {
           updatedAt: localTs,
           data: {
-            users: DB.users(),
+            users: normalizedLocalUsers,
             classes: DB.classes(),
             groups: DB.groups(),
             tasks: DB.tasks(),
@@ -397,9 +432,13 @@ async function syncFromSQLite() {
         });
       } else {
         // Ngược lại, cập nhật dữ liệu mới nhất từ Server về trình duyệt
-        _set(K.USERS, res.data.users);
         _set(K.CLASSES, res.data.classes);
         _set(K.GROUPS, res.data.groups);
+        const normalizedServerUsers = (res.data.users || []).map(u => ({
+          ...u,
+          classId: u.classId || ((u.role === 'sinhvien' || u.role === 'nhomt') ? DB.userClassId(u) : null)
+        }));
+        _set(K.USERS, normalizedServerUsers);
         _set(K.TASKS, res.data.tasks);
         _set(K.REPORTS, res.data.reports);
         _set(K.PRODUCTS, res.data.products);
@@ -410,7 +449,7 @@ async function syncFromSQLite() {
 
         // Kiểm tra lớp hiện tại có còn tồn tại không
         const curCid = localStorage.getItem(K.CUR_CLASS);
-        if (curCid && curCid !== 'all' && !res.data.classes.some(c => c.id === curCid)) {
+        if (!curCid || (curCid !== 'all' && !res.data.classes.some(c => c.id === curCid))) {
           const firstClass = res.data.classes[0]?.id || 'all';
           localStorage.setItem(K.CUR_CLASS, firstClass);
         }

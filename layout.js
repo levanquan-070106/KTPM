@@ -84,18 +84,19 @@ function buildTopbar(user, title) {
   let classEl = '';
   if (user.role === 'giaovien') {
     const classes = DB.classes().filter(c => c.lecturerId === user.id);
-    const rawCur = localStorage.getItem(K.CUR_CLASS) || 'all';
-    const curId = (rawCur === 'all' || classes.some(c => c.id === rawCur)) ? rawCur : 'all';
+    const rawCur = localStorage.getItem(K.CUR_CLASS);
+    const curId = (rawCur === 'all' || classes.some(c => c.id === rawCur)) ? rawCur : (classes[0]?.id || 'all');
+    if (!rawCur && classes[0]) DB.setCurClass(classes[0].id);
     classEl = `<div class="topbar-class">
       🏫
       <select id="class-switcher" onchange="switchClass(this.value)">
-        <option value="all" ${curId==='all'?'selected':''}>Tất cả các lớp (${classes.length})</option>
         ${classes.map(c => `<option value="${c.id}" ${c.id===curId?'selected':''}>${c.name}</option>`).join('')}
+        <option value="all" ${curId==='all'?'selected':''}>🌐 Tất cả các lớp (${classes.length})</option>
       </select>
     </div>`;
   } else {
-    const group = DB.groupOfUser(user.id);
-    const cls = group ? DB.findClass(group.classId) : null;
+    const uCid = DB.userClassId(user);
+    const cls = uCid ? DB.findClass(uCid) : null;
     if (cls) classEl = `<div class="topbar-class">🏫 <span>${cls.name}</span></div>`;
   }
 

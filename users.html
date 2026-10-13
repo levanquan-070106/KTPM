@@ -26,26 +26,36 @@
         <label class="form-label">Email <span class="form-required">*</span></label>
         <input id="u-email" class="form-control" type="email" placeholder="example@edu.vn" required/>
       </div>
-      <div class="form-group">
-        <label class="form-label">Mật khẩu <span id="pwd-hint" class="form-hint" style="display:none">(để trống = giữ nguyên)</span></label>
-        <input id="u-pwd" class="form-control" type="password" placeholder="••••••••"/>
-      </div>
       <div class="form-row">
         <div class="form-group">
+          <label class="form-label">Mật khẩu <span id="pwd-hint" class="form-hint" style="display:none">(để trống = giữ nguyên)</span></label>
+          <input id="u-pwd" class="form-control" type="password" placeholder="••••••••"/>
+        </div>
+        <div class="form-group">
           <label class="form-label">Vai trò <span class="form-required">*</span></label>
-          <select id="u-role" class="form-control" onchange="toggleGroupSelect(this.value)" required>
+          <select id="u-role" class="form-control" onchange="toggleRoleFields(this.value)" required>
             <option value="sinhvien">🎓 Sinh viên</option>
             <option value="nhomt">👑 Nhóm trưởng</option>
             <option value="giaovien">👨‍🏫 Giảng viên</option>
           </select>
         </div>
-        <div class="form-group" id="u-group-wrap">
-          <label class="form-label">Phân vào nhóm</label>
+      </div>
+
+      <!-- Chọn Lớp học & Nhóm dự án (dành cho Sinh viên / Nhóm trưởng) -->
+      <div class="form-row" id="u-class-group-wrap">
+        <div class="form-group">
+          <label class="form-label">🏫 Thuộc Lớp học <span class="form-required">*</span></label>
+          <select id="u-class" class="form-control" onchange="onUserClassChange(this.value)">
+          </select>
+        </div>
+        <div class="form-group">
+          <label class="form-label">👥 Phân vào nhóm (cùng lớp)</label>
           <select id="u-group" class="form-control">
             <option value="">-- Chưa phân nhóm --</option>
           </select>
         </div>
       </div>
+
       <div class="modal-footer">
         <button type="button" class="btn btn-secondary" onclick="closeModal('m-user')">Hủy</button>
         <button type="submit" class="btn btn-primary">💾 Lưu tài khoản</button>
@@ -61,11 +71,13 @@ const user = initPage('Tài khoản', 'users');
 if (user.role !== 'giaovien') navigate('dashboard.html');
 
 let filterRole = 'all';
+let filterClassId = 'all';
 let searchText = '';
 
 function render() {
   const el = document.getElementById('page-content');
   let users = DB.users();
+  const classes = DB.classes();
 
   const totalAll = users.length;
   const totalGV = users.filter(u => u.role === 'giaovien').length;
@@ -74,6 +86,9 @@ function render() {
 
   if (filterRole !== 'all') {
     users = users.filter(u => u.role === filterRole);
+  }
+  if (filterClassId !== 'all') {
+    users = users.filter(u => u.role !== 'giaovien' && DB.userClassId(u) === filterClassId);
   }
   if (searchText) {
     const q = searchText.toLowerCase();
@@ -87,9 +102,22 @@ function render() {
     <div class="page-header-row">
       <div>
         <h1>⚙️ Quản lý tài khoản</h1>
-        <p class="page-desc">${totalAll} tài khoản trong hệ thống</p>
+        <p class="page-desc">${totalAll} tài khoản trong hệ thống · Phân theo từng lớp học</p>
       </div>
       <button class="btn btn-primary" onclick="openUserModal()">➕ Thêm tài khoản</button>
+    </div>
+
+    <!-- Bộ lọc theo Lớp học -->
+    <div class="flex gap-2 mb-4" style="flex-wrap:wrap">
+      <button class="btn ${filterClassId === 'all' ? 'btn-primary' : 'btn-secondary'} btn-sm" onclick="setClassFilter('all')">
+        🌐 Tất cả các lớp (${totalAll})
+      </button>
+      ${classes.map(c => {
+        const cnt = DB.studentsByClass(c.id).length;
+        return `<button class="btn ${filterClassId === c.id ? 'btn-primary' : 'btn-secondary'} btn-sm" onclick="setClassFilter('${c.id}')">
+          🏫 ${c.name} (${cnt} SV)
+        </button>`;
+      }).join('')}
     </div>
 
     <div class="stat-grid" style="grid-template-columns:repeat(4,1fr);margin-bottom:20px">
@@ -139,6 +167,7 @@ function render() {
             <th>Họ và tên</th>
             <th>Email</th>
             <th>Vai trò</th>
+            <th>Lớp học</th>
             <th>Nhóm dự án</th>
             <th>Mật khẩu</th>
             <th>Thao tác</th>
@@ -146,9 +175,11 @@ function render() {
         </thead>
         <tbody>
           ${users.length === 0 ? `
-            <tr><td colspan="7"><div class="empty"><div class="empty-icon">👤</div><p>Không tìm thấy tài khoản nào</p></div></td></tr>
+            <tr><td colspan="8"><div class="empty"><div class="empty-icon">👤</div><p>Không tìm thấy tài khoản nào</p></div></td></tr>
           ` : users.map((u, idx) => {
             const group = DB.groupOfUser(u.id);
+            const uCid = DB.userClassId(u);
+            const cls = uCid ? DB.findClass(uCid) : null;
             return `<tr>
               <td class="text-muted">${idx + 1}</td>
               <td>
@@ -165,7 +196,12 @@ function render() {
                   '<span class="badge badge-outline">SV</span>'}
               </td>
               <td>
-                ${group ? `<span class="chip">${group.name}</span>` : '<span class="text-muted">—</span>'}
+                ${u.role === 'giaovien'
+                  ? '<span class="text-xs text-muted">Giảng viên</span>'
+                  : (cls ? `<span class="badge badge-outline">🏫 ${cls.name}</span>` : '<span class="text-xs text-danger">Chưa chọn lớp</span>')}
+              </td>
+              <td>
+                ${group ? `<span class="chip">${group.name}</span>` : '<span class="text-muted">Chưa có nhóm</span>'}
               </td>
               <td><span class="chip" style="font-family:monospace;letter-spacing:1px">••••••</span></td>
               <td>
@@ -188,9 +224,18 @@ function render() {
 
 window.handleSearch = function(val) { searchText = val; render(); };
 window.setFilter = function(r) { filterRole = r; render(); };
+window.setClassFilter = function(cid) { filterClassId = cid; render(); };
 
-window.toggleGroupSelect = function(role) {
-  document.getElementById('u-group-wrap').style.display = role === 'giaovien' ? 'none' : 'block';
+window.toggleRoleFields = function(role) {
+  const wrap = document.getElementById('u-class-group-wrap');
+  if (wrap) wrap.style.display = role === 'giaovien' ? 'none' : 'grid';
+};
+
+window.onUserClassChange = function(classId, selectedGroupId = '') {
+  const groups = DB.groupsByClass(classId);
+  const gSel = document.getElementById('u-group');
+  gSel.innerHTML = '<option value="">-- Chưa phân nhóm --</option>' +
+    groups.map(g => `<option value="${g.id}" ${selectedGroupId === g.id ? 'selected' : ''}>${g.name} – ${g.project}</option>`).join('');
 };
 
 window.openUserModal = function(uidVal = '') {
@@ -203,17 +248,16 @@ window.openUserModal = function(uidVal = '') {
   const role = u?.role || 'sinhvien';
   document.getElementById('u-role').value = role;
   document.getElementById('pwd-hint').style.display = u ? 'inline' : 'none';
-  toggleGroupSelect(role);
+  toggleRoleFields(role);
 
+  const classes = DB.classes();
   const curGrp = uidVal ? DB.groupOfUser(uidVal) : null;
-  const groups = DB.groups();
-  const gSel = document.getElementById('u-group');
-  gSel.innerHTML = '<option value="">-- Chưa phân nhóm --</option>' +
-    groups.map(g => {
-      const cls = DB.findClass(g.classId);
-      return `<option value="${g.id}" ${curGrp?.id === g.id ? 'selected' : ''}>${g.name} (${cls?.name || ''})</option>`;
-    }).join('');
+  const defaultClassId = (u ? DB.userClassId(u) : null) || (filterClassId !== 'all' ? filterClassId : null) || DB.curClassId() || classes[0]?.id || '';
 
+  const cSel = document.getElementById('u-class');
+  cSel.innerHTML = classes.map(c => `<option value="${c.id}" ${c.id === defaultClassId ? 'selected' : ''}>${c.name} (${c.semester})</option>`).join('');
+
+  onUserClassChange(defaultClassId, curGrp?.classId === defaultClassId ? curGrp.id : '');
   openModal('m-user');
 };
 
@@ -224,9 +268,11 @@ window.saveUser = function(e) {
   const email = document.getElementById('u-email').value.trim();
   const pwd = document.getElementById('u-pwd').value;
   const role = document.getElementById('u-role').value;
-  const targetGid = document.getElementById('u-group').value;
+  const classId = role === 'giaovien' ? null : document.getElementById('u-class').value;
+  const targetGid = role === 'giaovien' ? '' : document.getElementById('u-group').value;
 
   if (!name || !email) { showToast('Vui lòng nhập đầy đủ thông tin!', 'error'); return; }
+  if (role !== 'giaovien' && !classId) { showToast('Vui lòng chọn Lớp học cho sinh viên!', 'error'); return; }
 
   const exist = DB.findUser(email);
   if (exist && exist.id !== id) {
@@ -236,26 +282,26 @@ window.saveUser = function(e) {
 
   let finalId = id;
   if (id) {
-    const upd = { id, name, email, role };
+    const upd = { id, name, email, role, classId };
     if (pwd) upd.password = pwd;
     DB.updateUser(upd);
     showToast('✅ Đã cập nhật tài khoản!', 'success');
   } else {
     if (!pwd) { showToast('Vui lòng nhập mật khẩu cho tài khoản mới!', 'error'); return; }
     finalId = uid();
-    DB.addUser({ id: finalId, name, email, password: pwd, role });
-    showToast('✅ Đã thêm tài khoản mới!', 'success');
+    DB.addUser({ id: finalId, name, email, password: pwd, role, classId });
+    showToast('✅ Đã thêm tài khoản mới vào lớp!', 'success');
   }
 
-  // Xử lý phân vào nhóm
+  // Xử lý phân vào nhóm (đảm bảo chỉ thuộc nhóm trong đúng lớp đã chọn)
   if (role !== 'giaovien') {
     const curGrp = DB.groupOfUser(finalId);
-    if (curGrp && curGrp.id !== targetGid) {
+    if (curGrp && (curGrp.id !== targetGid || curGrp.classId !== classId)) {
       DB.updateGroup({ id: curGrp.id, members: curGrp.members.filter(m => m !== finalId) });
     }
     if (targetGid) {
       const targetGrp = DB.findGroup(targetGid);
-      if (targetGrp && !targetGrp.members.includes(finalId)) {
+      if (targetGrp && targetGrp.classId === classId && !targetGrp.members.includes(finalId)) {
         const updObj = { id: targetGid, members: [...targetGrp.members, finalId] };
         if (role === 'nhomt') updObj.leaderId = finalId;
         DB.updateGroup(updObj);

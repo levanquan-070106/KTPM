@@ -20,7 +20,8 @@ function initSchema() {
       name TEXT NOT NULL,
       email TEXT UNIQUE NOT NULL,
       password TEXT NOT NULL,
-      role TEXT NOT NULL
+      role TEXT NOT NULL,
+      class_id TEXT
     );
 
     CREATE TABLE IF NOT EXISTS classes (
@@ -115,11 +116,25 @@ function initSchema() {
     );
   `);
 
+  // Đảm bảo bảng users cũ (nếu có) có cột class_id
+  try { db.exec('ALTER TABLE users ADD COLUMN class_id TEXT'); } catch {}
+
   // Seed data ban đầu nếu bảng users trống
   const count = db.prepare('SELECT COUNT(*) as c FROM users').get().c;
   if (count === 0) {
     seedInitialData();
   }
+
+  // Tự động gán class_id cho các sinh viên chưa có class_id dựa trên nhóm hiện tại hoặc mặc định
+  try {
+    db.exec(`
+      UPDATE users SET class_id = (
+        SELECT g.class_id FROM group_members gm JOIN groups g ON gm.group_id = g.id WHERE gm.user_id = users.id LIMIT 1
+      ) WHERE class_id IS NULL AND role IN ('sinhvien', 'nhomt');
+    `);
+    db.exec(`UPDATE users SET class_id = 'c1' WHERE id IN ('u3','u4','u5','u6','u7','u8') AND class_id IS NULL`);
+    db.exec(`UPDATE users SET class_id = 'c2' WHERE id IN ('u9','u10','u11','u12') AND class_id IS NULL`);
+  } catch {}
 }
 
 db.getUpdatedAt = function() {
@@ -143,21 +158,21 @@ db.setUpdatedAt = function(ts = Date.now()) {
 function seedInitialData() {
   console.log('🌱 Đang nạp dữ liệu mẫu vào SQLite database...');
 
-  // Users
-  const insertUser = db.prepare('INSERT INTO users (id, name, email, password, role) VALUES (?, ?, ?, ?, ?)');
+  // Users (Phân tách rõ sinh viên thuộc từng lớp học: c1 = K68A, c2 = K68B)
+  const insertUser = db.prepare('INSERT INTO users (id, name, email, password, role, class_id) VALUES (?, ?, ?, ?, ?, ?)');
   const users = [
-    ['u1', 'TS. Hoàng Quang Huy',  'gv1@edu.vn', '123456', 'giaovien'],
-    ['u2', 'PGS. Nguyễn Thị Lan',  'gv2@edu.vn', '123456', 'giaovien'],
-    ['u3', 'Lê Văn Quân',          'nt1@edu.vn', '123456', 'nhomt'],
-    ['u4', 'Đỗ Xuân Nguyện',       'sv1@edu.vn', '123456', 'sinhvien'],
-    ['u5', 'Trần Thị Mai',         'sv2@edu.vn', '123456', 'sinhvien'],
-    ['u6', 'Phạm Minh Tú',         'nt2@edu.vn', '123456', 'nhomt'],
-    ['u7', 'Nguyễn Bảo Châu',      'sv3@edu.vn', '123456', 'sinhvien'],
-    ['u8', 'Hoàng Thị Hà',         'sv4@edu.vn', '123456', 'sinhvien'],
-    ['u9', 'Vũ Công Đức',          'nt3@edu.vn', '123456', 'nhomt'],
-    ['u10','Bùi Thị Lan',          'sv5@edu.vn', '123456', 'sinhvien'],
-    ['u11','Cao Văn Nam',          'sv6@edu.vn', '123456', 'sinhvien'],
-    ['u12','Đinh Thị Thảo',        'sv7@edu.vn', '123456', 'sinhvien'],
+    ['u1', 'TS. Hoàng Quang Huy',  'gv1@edu.vn', '123456', 'giaovien', null],
+    ['u2', 'PGS. Nguyễn Thị Lan',  'gv2@edu.vn', '123456', 'giaovien', null],
+    ['u3', 'Lê Văn Quân',          'nt1@edu.vn', '123456', 'nhomt',    'c1'],
+    ['u4', 'Đỗ Xuân Nguyện',       'sv1@edu.vn', '123456', 'sinhvien', 'c1'],
+    ['u5', 'Trần Thị Mai',         'sv2@edu.vn', '123456', 'sinhvien', 'c1'],
+    ['u6', 'Phạm Minh Tú',         'nt2@edu.vn', '123456', 'nhomt',    'c1'],
+    ['u7', 'Nguyễn Bảo Châu',      'sv3@edu.vn', '123456', 'sinhvien', 'c1'],
+    ['u8', 'Hoàng Thị Hà',         'sv4@edu.vn', '123456', 'sinhvien', 'c1'],
+    ['u9', 'Vũ Công Đức',          'nt3@edu.vn', '123456', 'nhomt',    'c2'],
+    ['u10','Bùi Thị Lan',          'sv5@edu.vn', '123456', 'sinhvien', 'c2'],
+    ['u11','Cao Văn Nam',          'sv6@edu.vn', '123456', 'sinhvien', 'c2'],
+    ['u12','Đinh Thị Thảo',        'sv7@edu.vn', '123456', 'sinhvien', 'c2'],
   ];
   users.forEach(u => insertUser.run(...u));
 

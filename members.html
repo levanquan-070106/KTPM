@@ -142,14 +142,13 @@ window.openAddMemberModal = function() {
   if (!group) return;
 
   const allGroups = DB.groups();
-  // Find students in the system not assigned to any group
-  const freeUsers = DB.users().filter(u =>
-    (u.role === 'sinhvien' || u.role === 'nhomt') &&
+  // Chỉ lấy sinh viên thuộc cùng lớp học với nhóm này và chưa có nhóm
+  const freeUsers = DB.studentsByClass(group.classId).filter(u =>
     !allGroups.some(g => g.members.includes(u.id))
   );
 
   const sel = document.getElementById('sel-student');
-  sel.innerHTML = '<option value="">-- Chọn sinh viên --</option>' +
+  sel.innerHTML = '<option value="">-- Chọn sinh viên cùng lớp chưa có nhóm --</option>' +
     freeUsers.map(u => `<option value="${u.id}">${u.name} (${u.email})</option>`).join('');
 
   openModal('m-add-member');
