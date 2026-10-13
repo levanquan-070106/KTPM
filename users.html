@@ -30,13 +30,21 @@
         <label class="form-label">Mật khẩu <span id="pwd-hint" class="form-hint" style="display:none">(để trống = giữ nguyên)</span></label>
         <input id="u-pwd" class="form-control" type="password" placeholder="••••••••"/>
       </div>
-      <div class="form-group">
-        <label class="form-label">Vai trò <span class="form-required">*</span></label>
-        <select id="u-role" class="form-control" required>
-          <option value="sinhvien">🎓 Sinh viên</option>
-          <option value="nhomt">👑 Nhóm trưởng</option>
-          <option value="giaovien">👨‍🏫 Giảng viên</option>
-        </select>
+      <div class="form-row">
+        <div class="form-group">
+          <label class="form-label">Vai trò <span class="form-required">*</span></label>
+          <select id="u-role" class="form-control" onchange="toggleGroupSelect(this.value)" required>
+            <option value="sinhvien">🎓 Sinh viên</option>
+            <option value="nhomt">👑 Nhóm trưởng</option>
+            <option value="giaovien">👨‍🏫 Giảng viên</option>
+          </select>
+        </div>
+        <div class="form-group" id="u-group-wrap">
+          <label class="form-label">Phân vào nhóm</label>
+          <select id="u-group" class="form-control">
+            <option value="">-- Chưa phân nhóm --</option>
+          </select>
+        </div>
       </div>
       <div class="modal-footer">
         <button type="button" class="btn btn-secondary" onclick="closeModal('m-user')">Hủy</button>
@@ -181,15 +189,31 @@ function render() {
 window.handleSearch = function(val) { searchText = val; render(); };
 window.setFilter = function(r) { filterRole = r; render(); };
 
-window.openUserModal = function(uid = '') {
-  const u = uid ? DB.findUserById(uid) : null;
+window.toggleGroupSelect = function(role) {
+  document.getElementById('u-group-wrap').style.display = role === 'giaovien' ? 'none' : 'block';
+};
+
+window.openUserModal = function(uidVal = '') {
+  const u = uidVal ? DB.findUserById(uidVal) : null;
   document.getElementById('m-user-title').textContent = u ? '✏️ Sửa tài khoản' : '➕ Thêm tài khoản mới';
-  document.getElementById('u-id').value = uid;
+  document.getElementById('u-id').value = uidVal;
   document.getElementById('u-name').value = u?.name || '';
   document.getElementById('u-email').value = u?.email || '';
   document.getElementById('u-pwd').value = '';
-  document.getElementById('u-role').value = u?.role || 'sinhvien';
+  const role = u?.role || 'sinhvien';
+  document.getElementById('u-role').value = role;
   document.getElementById('pwd-hint').style.display = u ? 'inline' : 'none';
+  toggleGroupSelect(role);
+
+  const curGrp = uidVal ? DB.groupOfUser(uidVal) : null;
+  const groups = DB.groups();
+  const gSel = document.getElementById('u-group');
+  gSel.innerHTML = '<option value="">-- Chưa phân nhóm --</option>' +
+    groups.map(g => {
+      const cls = DB.findClass(g.classId);
+      return `<option value="${g.id}" ${curGrp?.id === g.id ? 'selected' : ''}>${g.name} (${cls?.name || ''})</option>`;
+    }).join('');
+
   openModal('m-user');
 };
 
@@ -200,6 +224,7 @@ window.saveUser = function(e) {
   const email = document.getElementById('u-email').value.trim();
   const pwd = document.getElementById('u-pwd').value;
   const role = document.getElementById('u-role').value;
+  const targetGid = document.getElementById('u-group').value;
 
   if (!name || !email) { showToast('Vui lòng nhập đầy đủ thông tin!', 'error'); return; }
 
@@ -209,6 +234,7 @@ window.saveUser = function(e) {
     return;
   }
 
+  let finalId = id;
   if (id) {
     const upd = { id, name, email, role };
     if (pwd) upd.password = pwd;
@@ -216,8 +242,25 @@ window.saveUser = function(e) {
     showToast('✅ Đã cập nhật tài khoản!', 'success');
   } else {
     if (!pwd) { showToast('Vui lòng nhập mật khẩu cho tài khoản mới!', 'error'); return; }
-    DB.addUser({ id: uid(), name, email, password: pwd, role });
+    finalId = uid();
+    DB.addUser({ id: finalId, name, email, password: pwd, role });
     showToast('✅ Đã thêm tài khoản mới!', 'success');
+  }
+
+  // Xử lý phân vào nhóm
+  if (role !== 'giaovien') {
+    const curGrp = DB.groupOfUser(finalId);
+    if (curGrp && curGrp.id !== targetGid) {
+      DB.updateGroup({ id: curGrp.id, members: curGrp.members.filter(m => m !== finalId) });
+    }
+    if (targetGid) {
+      const targetGrp = DB.findGroup(targetGid);
+      if (targetGrp && !targetGrp.members.includes(finalId)) {
+        const updObj = { id: targetGid, members: [...targetGrp.members, finalId] };
+        if (role === 'nhomt') updObj.leaderId = finalId;
+        DB.updateGroup(updObj);
+      }
+    }
   }
 
   closeModal('m-user');

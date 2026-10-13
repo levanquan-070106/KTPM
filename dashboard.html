@@ -118,7 +118,12 @@ function renderGV(el) {
 function renderSV(el) {
   const group = DB.groupOfUser(user.id);
   if (!group) {
-    el.innerHTML = `<div class="empty" style="padding:60px"><div class="empty-icon">👥</div><h3>Chưa có nhóm</h3><p>Vui lòng liên hệ giảng viên để được phân nhóm</p></div>`;
+    el.innerHTML = `<div class="empty" style="padding:60px">
+      <div class="empty-icon">👥</div>
+      <h3>Bạn chưa tham gia nhóm dự án nào</h3>
+      <p>Bạn có thể tự khởi tạo nhóm dự án mới và thêm thành viên, hoặc tham gia nhóm có sẵn</p>
+      <button class="btn btn-primary mt-3" onclick="navigate('mygroup.html')">➕ Tạo nhóm mới & Thêm thành viên</button>
+    </div>`;
     return;
   }
   const cls = DB.findClass(group.classId);

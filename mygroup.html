@@ -9,7 +9,7 @@
 <div id="app"></div>
 <div id="toast-stack" class="toast-stack"></div>
 
-<!-- Modal sửa thông tin dự án (chỉ Nhóm trưởng) -->
+<!-- Modal sửa thông tin dự án (Nhóm trưởng) -->
 <div class="modal-overlay" id="m-edit-proj">
   <div class="modal modal-md">
     <div class="modal-header">
@@ -37,6 +37,71 @@
   </div>
 </div>
 
+<!-- Modal Tạo nhóm dự án mới (khi chưa có nhóm) -->
+<div class="modal-overlay" id="m-create-group">
+  <div class="modal modal-lg">
+    <div class="modal-header">
+      <div class="modal-title">➕ Tạo nhóm dự án mới</div>
+      <button class="modal-close" onclick="closeModal('m-create-group')">✕</button>
+    </div>
+    <form onsubmit="createNewGroup(event)">
+      <div class="form-row">
+        <div class="form-group">
+          <label class="form-label">Tên nhóm <span class="form-required">*</span></label>
+          <input id="cg-name" class="form-control" placeholder="VD: Nhóm 05" required/>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Lớp học <span class="form-required">*</span></label>
+          <select id="cg-class" class="form-control" required></select>
+        </div>
+      </div>
+      <div class="form-group">
+        <label class="form-label">Tên đề tài dự án <span class="form-required">*</span></label>
+        <input id="cg-project" class="form-control" placeholder="Nhập tên đề tài dự án của nhóm..." required/>
+      </div>
+      <div class="form-group">
+        <label class="form-label">Công nghệ dự kiến sử dụng</label>
+        <input id="cg-tech" class="form-control" placeholder="VD: React, Node.js, PostgreSQL..."/>
+      </div>
+      <div class="form-group">
+        <label class="form-label">👥 Chọn thêm thành viên vào nhóm</label>
+        <div id="cg-members-list" style="max-height:170px;overflow-y:auto;border:1px solid var(--border);border-radius:var(--radius-sm);padding:8px;background:var(--gray-50);display:flex;flex-direction:column;gap:6px">
+        </div>
+        <div class="form-hint">Bạn sẽ là Nhóm trưởng của nhóm này. Tích chọn các bạn sinh viên khác cùng nhóm.</div>
+      </div>
+      <div class="form-group">
+        <label class="form-label">Mô tả ngắn về dự án</label>
+        <textarea id="cg-desc" class="form-control" rows="2" placeholder="Mô tả mục tiêu dự án..."></textarea>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" onclick="closeModal('m-create-group')">Hủy</button>
+        <button type="submit" class="btn btn-primary">🚀 Tạo nhóm ngay</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- Modal thêm nhanh thành viên vào nhóm hiện tại -->
+<div class="modal-overlay" id="m-add-mem">
+  <div class="modal modal-md">
+    <div class="modal-header">
+      <div class="modal-title">➕ Thêm thành viên vào nhóm</div>
+      <button class="modal-close" onclick="closeModal('m-add-mem')">✕</button>
+    </div>
+    <form onsubmit="addMemberToGroup(event)">
+      <div class="form-group">
+        <label class="form-label">Chọn sinh viên <span class="form-required">*</span></label>
+        <select id="am-select" class="form-control" required></select>
+        <div class="form-hint">Danh sách các sinh viên chưa tham gia nhóm nào</div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" onclick="closeModal('m-add-mem')">Hủy</button>
+        <button type="submit" class="btn btn-primary">➕ Thêm vào nhóm</button>
+      </div>
+    </form>
+  </div>
+</div>
+
 <script src="data.js"></script>
 <script src="layout.js"></script>
 <script>
@@ -47,12 +112,43 @@ function render() {
   const group = DB.groupOfUser(user.id);
 
   if (!group) {
+    const allGroups = DB.groups();
     el.innerHTML = `
-      <div class="empty" style="padding:60px">
-        <div class="empty-icon">👥</div>
-        <h3>Bạn chưa được phân vào nhóm nào</h3>
-        <p>Vui lòng liên hệ giảng viên hướng dẫn để được đưa vào danh sách nhóm của lớp</p>
+      <div class="card" style="text-align:center;padding:48px 24px;margin-bottom:24px">
+        <div style="font-size:48px;margin-bottom:12px">👥</div>
+        <h2 style="font-size:18px;font-weight:800;margin-bottom:6px">Bạn chưa tham gia nhóm dự án nào</h2>
+        <p class="text-secondary text-sm" style="max-width:480px;margin:0 auto 20px">
+          Bạn có thể tự khởi tạo một nhóm dự án mới (và thêm các bạn cùng nhóm), hoặc chọn tham gia vào một nhóm đã được tạo sẵn bên dưới.
+        </p>
+        <div class="flex gap-3 justify-center">
+          <button class="btn btn-primary" onclick="openCreateGroupModal()">➕ Tạo nhóm mới & Thêm thành viên</button>
+        </div>
       </div>
+
+      ${allGroups.length > 0 ? `
+        <div class="card">
+          <div class="card-header">
+            <div class="card-title">🔗 Hoặc tham gia nhóm dự án có sẵn (${allGroups.length} nhóm)</div>
+          </div>
+          <div class="grid-auto">
+            ${allGroups.map(g => {
+              const cls = DB.findClass(g.classId);
+              const leader = DB.findUserById(g.leaderId);
+              return `
+                <div class="card card-sm" style="background:var(--gray-50)">
+                  <div class="flex items-center justify-between mb-1">
+                    <span class="font-bold text-sm">${g.name}</span>
+                    <span class="badge badge-gray">${cls?.name || ''}</span>
+                  </div>
+                  <div class="text-xs font-semibold mb-1 truncate">${g.project}</div>
+                  <div class="text-xs text-muted mb-3">👑 NT: ${leader?.name || '—'} · 👥 ${g.members.length} thành viên</div>
+                  <button class="btn btn-secondary btn-sm w-full" onclick="joinGroup('${g.id}')">🔗 Tham gia nhóm này</button>
+                </div>
+              `;
+            }).join('')}
+          </div>
+        </div>
+      ` : ''}
     `;
     return;
   }
@@ -82,7 +178,10 @@ function render() {
         <p class="page-desc">${cls?.semester || 'Học kỳ 1 · 2026-2027'} · Tuần ${week}/16</p>
       </div>
       <div class="flex gap-2">
-        ${isNT ? `<button class="btn btn-secondary" onclick="openEditProject()">✏️ Sửa thông tin đề tài</button>` : ''}
+        ${isNT ? `
+          <button class="btn btn-secondary" onclick="openAddMemModal()">➕ Thêm thành viên</button>
+          <button class="btn btn-secondary" onclick="openEditProject()">✏️ Sửa đề tài</button>
+        ` : ''}
         <button class="btn btn-primary" onclick="navigate('kanban.html')">⬜ Bảng Kanban</button>
       </div>
     </div>
@@ -132,7 +231,12 @@ function render() {
       <div class="card">
         <div class="card-header">
           <div class="card-title">👤 Thành viên nhóm (${members.length})</div>
-          ${isNT ? `<button class="btn btn-ghost btn-sm" onclick="navigate('members.html')">Quản lý ➔</button>` : ''}
+          <div class="flex gap-1">
+            ${isNT ? `
+              <button class="btn btn-primary btn-sm" onclick="openAddMemModal()">➕ Thêm TV</button>
+              <button class="btn btn-ghost btn-sm" onclick="navigate('members.html')">Chi tiết ➔</button>
+            ` : ''}
+          </div>
         </div>
         <div style="display:flex;flex-direction:column;gap:10px">
           ${members.map(m => {
@@ -147,7 +251,7 @@ function render() {
                 <div style="flex:1;min-width:0">
                   <div class="flex items-center gap-2">
                     <span class="font-semibold text-sm truncate">${m.name}</span>
-                    ${isMemberLeader ? '<span class="badge badge-gray font-bold">NT</span>' : '<span class="badge badge-outline">SV</span>'}
+                    ${isMemberLeader ? '<span class="badge badge-gray font-bold">👑 NT</span>' : '<span class="badge badge-outline">SV</span>'}
                     ${m.id === user.id ? '<span class="badge badge-black" style="font-size:9px">Bạn</span>' : ''}
                   </div>
                   <div class="text-xs text-muted truncate">${m.email}</div>
@@ -208,6 +312,112 @@ function render() {
     </div>
   `;
 }
+
+// ── Tạo nhóm dự án mới ──
+window.openCreateGroupModal = function() {
+  const classes = DB.classes();
+  const cSel = document.getElementById('cg-class');
+  cSel.innerHTML = classes.map(c => `<option value="${c.id}">${c.name} (${c.semester})</option>`).join('');
+
+  const allGroups = DB.groups();
+  const freeStudents = DB.users().filter(u =>
+    u.id !== user.id &&
+    (u.role === 'sinhvien' || u.role === 'nhomt') &&
+    !allGroups.some(g => g.members.includes(u.id))
+  );
+
+  const listEl = document.getElementById('cg-members-list');
+  listEl.innerHTML = freeStudents.length === 0 ?
+    '<div class="text-xs text-muted text-center py-2">Không còn sinh viên nào chưa có nhóm</div>' :
+    freeStudents.map(u => `
+      <label style="display:flex;align-items:center;gap:8px;padding:6px 8px;background:#fff;border:1px solid var(--border);border-radius:4px;cursor:pointer;font-size:12px">
+        <input type="checkbox" class="cg-mem-cb" value="${u.id}" style="width:15px;height:15px"/>
+        <span class="font-semibold">${u.name}</span>
+        <span class="text-muted">(${u.email})</span>
+      </label>
+    `).join('');
+
+  openModal('m-create-group');
+};
+
+window.createNewGroup = function(e) {
+  e.preventDefault();
+  const name = document.getElementById('cg-name').value.trim();
+  const classId = document.getElementById('cg-class').value;
+  const project = document.getElementById('cg-project').value.trim();
+  const tech = document.getElementById('cg-tech').value.trim();
+  const description = document.getElementById('cg-desc').value.trim();
+
+  if (!name || !classId || !project) {
+    showToast('Vui lòng điền đầy đủ thông tin bắt buộc!', 'error');
+    return;
+  }
+
+  const checkedIds = Array.from(document.querySelectorAll('.cg-mem-cb:checked')).map(cb => cb.value);
+  const members = [user.id, ...checkedIds];
+
+  // Cập nhật user hiện tại thành Nhóm trưởng
+  DB.updateUser({ id: user.id, role: 'nhomt' });
+  const sess = DB.session();
+  if (sess) { sess.role = 'nhomt'; DB.setSession(sess); }
+
+  DB.addGroup({
+    id: uid(),
+    classId,
+    name,
+    project,
+    tech,
+    description,
+    leaderId: user.id,
+    members,
+    createdAt: new Date().toISOString()
+  });
+
+  showToast(`✅ Đã tạo ${name} thành công với ${members.length} thành viên!`, 'success');
+  closeModal('m-create-group');
+  location.reload();
+};
+
+window.joinGroup = function(gid) {
+  const g = DB.findGroup(gid);
+  if (!g) return;
+  if (!confirm(`Bạn muốn tham gia vào ${g.name} (${g.project})?`)) return;
+
+  const updated = [...g.members, user.id];
+  DB.updateGroup({ id: gid, members: updated });
+  showToast(`✅ Bạn đã tham gia ${g.name}!`, 'success');
+  render();
+};
+
+// ── Thêm thành viên nhanh ──
+window.openAddMemModal = function() {
+  const group = DB.groupOfUser(user.id);
+  if (!group) return;
+  const allGroups = DB.groups();
+  const freeUsers = DB.users().filter(u =>
+    (u.role === 'sinhvien' || u.role === 'nhomt') &&
+    !allGroups.some(g => g.members.includes(u.id))
+  );
+
+  const sel = document.getElementById('am-select');
+  sel.innerHTML = '<option value="">-- Chọn sinh viên --</option>' +
+    freeUsers.map(u => `<option value="${u.id}">${u.name} (${u.email})</option>`).join('');
+
+  openModal('m-add-mem');
+};
+
+window.addMemberToGroup = function(e) {
+  e.preventDefault();
+  const uidVal = document.getElementById('am-select').value;
+  if (!uidVal) { showToast('Vui lòng chọn sinh viên!', 'error'); return; }
+  const group = DB.groupOfUser(user.id);
+  if (!group) return;
+
+  DB.updateGroup({ id: group.id, members: [...group.members, uidVal] });
+  showToast('✅ Đã thêm thành viên vào nhóm!', 'success');
+  closeModal('m-add-mem');
+  render();
+};
 
 window.openEditProject = function() {
   const group = DB.groupOfUser(user.id);
