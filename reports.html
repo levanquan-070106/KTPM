@@ -248,6 +248,48 @@ function renderGroup(el) {
     </div>`;
 }
 
+
+/* ════ INDEXEDDB FILE STORE (không giới hạn dung lượng như localStorage) ════ */
+const FileStore = (() => {
+  let _db = null;
+  function open() {
+    if (_db) return Promise.resolve(_db);
+    return new Promise((res, rej) => {
+      const req = indexedDB.open('ktpmud_files', 1);
+      req.onupgradeneeded = e => e.target.result.createObjectStore('files', { keyPath: 'key' });
+      req.onsuccess = e => { _db = e.target.result; res(_db); };
+      req.onerror = () => rej(req.error);
+    });
+  }
+  return {
+    async put(key, dataUrl) {
+      const db = await open();
+      return new Promise((res, rej) => {
+        const tx = db.transaction('files', 'readwrite');
+        tx.objectStore('files').put({ key, dataUrl });
+        tx.oncomplete = res; tx.onerror = () => rej(tx.error);
+      });
+    },
+    async get(key) {
+      const db = await open();
+      return new Promise((res, rej) => {
+        const tx = db.transaction('files', 'readonly');
+        const req = tx.objectStore('files').get(key);
+        req.onsuccess = () => res(req.result?.dataUrl || null);
+        req.onerror = () => rej(req.error);
+      });
+    },
+    async del(key) {
+      const db = await open();
+      return new Promise((res, rej) => {
+        const tx = db.transaction('files', 'readwrite');
+        tx.objectStore('files').delete(key);
+        tx.oncomplete = res; tx.onerror = () => rej(tx.error);
+      });
+    }
+  };
+})();
+
 /* ════ FILE UPLOAD HANDLERS ════ */
 // Đọc file thành base64 - lưu vĩnh viễn trong localStorage, không bị mất khi server ngủ đông
 function readFileAsBase64(file) {
@@ -268,7 +310,10 @@ window.handleFiles = function(files) {
     if (pendingFiles.find(p=>p.name===f.name)) { showToast(`File ${f.name} đã được thêm!`, 'warning'); return; }
     showToast(`Đang đọc ${f.name}...`, 'info');
     const dataUrl = await readFileAsBase64(f);
-    pendingFiles.push({ name:f.name, size:f.size, type:ext, dataUrl, rawFile: f });
+    // Lưu vào IndexedDB (không giới hạn dung lượng), chỉ lưu key vào report
+    const fileKey = `file_${Date.now()}_${f.name}`;
+    await FileStore.put(fileKey, dataUrl);
+    pendingFiles.push({ name:f.name, size:f.size, type:ext, fileKey, rawFile: f });
     renderFileList();
   });
 };
@@ -281,7 +326,7 @@ function renderFileList() {
       <span class="fi-icon">${fileIcon(f.name)}</span>
       <span class="fi-name">${f.name}</span>
       <span class="fi-size">${fmtBytes(f.size)}</span>
-      ${f.dataUrl ? `<span style="font-size:10px;color:#16a34a;font-weight:600">✓ Đã đọc</span>` : `<span style="font-size:10px;color:#9ca3af">Đang đọc...</span>`}
+      ${f.fileKey ? `<span style="font-size:10px;color:#16a34a;font-weight:600">✓ Đã đọc</span>` : `<span style="font-size:10px;color:#9ca3af">Đang đọc...</span>`}
       <button class="fi-remove" onclick="removeFile(${i})">✕</button>
     </div>`).join('');
 }
@@ -324,10 +369,10 @@ window.submitReport = async function(e) {
   const plan    = document.getElementById('sub-plan').value.trim();
   if (!summary) { showToast('Vui lòng nhập nội dung báo cáo!', 'error'); return; }
 
-  // Lưu file dưới dạng base64 vào object - không phụ thuộc server upload
+  // Lưu fileKey (tham chiếu IndexedDB), không nhúng base64 thô vào localStorage
   const uploadedFiles = pendingFiles.map(f => ({
     name: f.name, size: f.size, type: f.type,
-    dataUrl: f.dataUrl || null  // base64 data URL, lưu vào localStorage cùng với report
+    fileKey: f.fileKey || null  // key để tra cứu trong IndexedDB
   }));
 
   const group = DB.groupOfUser(user.id);
@@ -377,9 +422,9 @@ window.viewReport = function(rid) {
               <span class="fi-name">${f.name}</span>
               <span class="fi-size">${fmtBytes(f.size)}</span>
               <div style="display:flex;gap:4px;flex-shrink:0">
-                ${f.dataUrl
-                  ? `<button class="btn btn-secondary btn-sm" onclick="viewFile(this)" data-fname="${f.name}" data-url="${f.dataUrl}" title="Xem trực tiếp">👁 Xem</button>
-                     <a href="${f.dataUrl}" download="${f.name}" class="btn btn-ghost btn-sm" title="Tải xuống">⬇️</a>`
+                ${f.fileKey
+                  ? `<button class="btn btn-secondary btn-sm" onclick="viewFileByKey(this,'${f.name}','${f.fileKey}')" title="Xem/Tải file">👁 Xem</button>
+                     <button class="btn btn-ghost btn-sm" onclick="downloadFileByKey('${f.name}','${f.fileKey}')" title="Tải xuống">⬇️</button>`
                   : `<span class="text-muted text-xs">Chưa có file</span>`
                 }
               </div>
@@ -440,32 +485,43 @@ window.saveGrade = function(e) {
 render();
 
 /* ════ FILE VIEWER ════ */
+window.viewFileByKey = async function(btn, name, fileKey) {
+  btn.textContent = '⏳'; btn.disabled = true;
+  const dataUrl = await FileStore.get(fileKey);
+  btn.textContent = '👁 Xem'; btn.disabled = false;
+  if (!dataUrl) { showToast('Không tìm thấy file! Có thể trình duyệt đã xóa cache.', 'error'); return; }
+  viewFileData(name, dataUrl);
+};
+window.downloadFileByKey = async function(name, fileKey) {
+  const dataUrl = await FileStore.get(fileKey);
+  if (!dataUrl) { showToast('Không tìm thấy file!', 'error'); return; }
+  const a = document.createElement('a'); a.href = dataUrl; a.download = name; a.click();
+};
 window.viewFile = function(btn) {
   const dataUrl = btn.getAttribute('data-url');
   const name = btn.getAttribute('data-fname') || '?';
   if (!dataUrl) { showToast('File không có sẵn dữ liệu để xem!', 'error'); return; }
   const ext = name.split('.').pop().toLowerCase();
-  if (ext === 'pdf') {
-    // PDF: open via blob URL in new tab
-    const byteStr = atob(dataUrl.split(',')[1]);
-    const ab = new ArrayBuffer(byteStr.length);
-    const ia = new Uint8Array(ab);
-    for (let i=0;i<byteStr.length;i++) ia[i]=byteStr.charCodeAt(i);
-    const blob = new Blob([ab], {type:'application/pdf'});
-    window.open(URL.createObjectURL(blob), '_blank');
-  } else {
-    // DOCX/PPTX/DOC/PPT: download then open via Google Docs Viewer
-    // First trigger download so user has the file
-    const a = document.createElement('a');
-    a.href = dataUrl;
-    a.download = name;
-    a.click();
-    // Then open Google Docs Viewer (needs public URL - show message)
-    setTimeout(() => {
-      showToast('File đã được tải xuống. Mở bằng Microsoft Word/PowerPoint để xem nội dung.', 'info');
-    }, 500);
-  }
+  viewFileData(name, dataUrl);
 };
+function viewFileData(name, dataUrl) {
+  const ext = name.split('.').pop().toLowerCase();
+  const byteStr = atob(dataUrl.split(',')[1]);
+  const ab = new ArrayBuffer(byteStr.length);
+  const ia = new Uint8Array(ab);
+  for (let i=0;i<byteStr.length;i++) ia[i]=byteStr.charCodeAt(i);
+  const mimeMap = { pdf:'application/pdf', docx:'application/vnd.openxmlformats-officedocument.wordprocessingml.document', doc:'application/msword', pptx:'application/vnd.openxmlformats-officedocument.presentationml.presentation', ppt:'application/vnd.ms-powerpoint' };
+  const mime = mimeMap[ext] || 'application/octet-stream';
+  const blob = new Blob([ab], { type: mime });
+  const url = URL.createObjectURL(blob);
+  if (ext === 'pdf') {
+    window.open(url, '_blank');
+  } else {
+    // Tải file về → mở bằng Office
+    const a = document.createElement('a'); a.href = url; a.download = name; a.click();
+    setTimeout(() => showToast(`✅ Đã tải ${name}. Mở bằng Word/PowerPoint để xem.`, 'info'), 300);
+  }
+}
 
 </script>
 </body>

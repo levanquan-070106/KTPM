@@ -19,6 +19,10 @@ const K = {
 const _get = k => { try { return JSON.parse(localStorage.getItem(k)) || []; } catch { return []; } };
 const _getObj = k => { try { return JSON.parse(localStorage.getItem(k)) || null; } catch { return null; } };
 const _set = (k, v) => localStorage.setItem(k, JSON.stringify(v));
+// sessionStorage helpers – riêng biệt theo từng tab (hỗ trợ đăng nhập 2 tài khoản cùng lúc)
+const _ssGet = k => { try { return JSON.parse(sessionStorage.getItem(k)) || null; } catch { return null; } };
+const _ssSet = (k, v) => sessionStorage.setItem(k, JSON.stringify(v));
+const _ssDel = k => sessionStorage.removeItem(k);
 
 // ── Server API sync helper ──────────────────────────────────
 const _api = async (url, method = 'GET', body = null) => {
