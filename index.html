@@ -1,6 +1,6 @@
 <!DOCTYPE html>
 <html lang="vi"><head><meta charset="UTF-8"/><title>KTPMUD</title></head>
 <body><script>
-const s = localStorage.getItem('ktpmud_session');
+const s = sessionStorage.getItem('ktpmud_session') || localStorage.getItem('ktpmud_session');
 window.location.href = s ? 'dashboard.html' : 'login.html';
 </script></body></html>

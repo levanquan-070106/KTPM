@@ -369,21 +369,58 @@ window.submitReport = async function(e) {
   const plan    = document.getElementById('sub-plan').value.trim();
   if (!summary) { showToast('Vui lòng nhập nội dung báo cáo!', 'error'); return; }
 
-  // Lưu fileKey (tham chiếu IndexedDB), không nhúng base64 thô vào localStorage
-  const uploadedFiles = pendingFiles.map(f => ({
-    name: f.name, size: f.size, type: f.type,
-    fileKey: f.fileKey || null  // key để tra cứu trong IndexedDB
+  // Chuẩn bị danh sách file
+  let uploadedFiles = pendingFiles.map(f => ({
+    name: f.name,
+    size: f.size,
+    type: f.type,
+    path: f.path || null,
+    fileKey: f.fileKey || null,
+    dataUrl: f.dataUrl || null
   }));
 
+  // Nếu có file mới chọn (rawFile) và đang chạy trên server: upload lên /api/upload
+  const filesToUpload = pendingFiles.filter(f => f.rawFile);
+  if (location.protocol.startsWith('http') && filesToUpload.length > 0) {
+    try {
+      showToast('Đang tải file đính kèm lên máy chủ...', 'info');
+      const fd = new FormData();
+      filesToUpload.forEach(f => fd.append('files', f.rawFile));
+      const res = await fetch('/api/upload', { method: 'POST', body: fd });
+      const data = await res.json();
+      if (data && data.success && Array.isArray(data.files)) {
+        uploadedFiles = uploadedFiles.map(f => {
+          const match = data.files.find(df => df.originalName === f.name);
+          return match ? { ...f, path: match.path, dataUrl: null } : f;
+        });
+        showToast('✅ Tải file lên máy chủ thành công!', 'success');
+      }
+    } catch (err) {
+      console.warn('Server upload failed, using local copy:', err);
+    }
+  }
+
+  // Đảm bảo không nhét dataUrl quá nặng vào report object để tránh đầy localStorage
+  uploadedFiles = uploadedFiles.map(f => {
+    if (f.dataUrl && f.dataUrl.length > 100000) {
+      const { dataUrl, ...rest } = f;
+      return rest;
+    }
+    return f;
+  });
+
   const group = DB.groupOfUser(user.id);
-  const obj = { week, groupId:group.id, summary, plan, files: uploadedFiles,
-    submittedAt:new Date().toISOString(), submittedBy:user.id, status:'submitted', grade:null, feedback:null, gradedAt:null };
+  const obj = {
+    week, groupId: group.id, summary, plan, files: uploadedFiles,
+    submittedAt: new Date().toISOString(), submittedBy: user.id,
+    status: 'submitted', grade: null, feedback: null, gradedAt: null
+  };
 
   if (rid) {
-    DB.updateReport({id:rid, ...obj});
+    DB.updateReport({ id: rid, ...obj });
     showToast(`✅ Đã cập nhật báo cáo tuần ${week}!`, 'success');
   } else {
-    DB.addReport({id:uid(), ...obj});
+    DB.addReport({ id: uid(), ...obj });
     showToast(`✅ Đã nộp báo cáo tuần ${week}!`, 'success');
   }
   pendingFiles = [];
@@ -412,26 +449,13 @@ window.viewReport = function(rid) {
       <div class="card card-sm" style="white-space:pre-wrap;font-size:13px;line-height:1.7;background:var(--gray-50)">${r.summary}</div>
     </div>
     ${r.plan?`<div class="form-group"><label class="form-label">Kế hoạch tuần tới</label><div class="card card-sm" style="white-space:pre-wrap;font-size:13px;line-height:1.7;background:var(--gray-50)">${r.plan}</div></div>`:''}
-    ${r.files?.length?`
+    ${r.files?.length ? `
       <div class="form-group">
         <label class="form-label">📎 File đính kèm (${r.files.length})</label>
         <div class="file-list">
-          ${r.files.map(f=>`
-            <div class="file-item">
-              <span class="fi-icon">${fileIcon(f.name)}</span>
-              <span class="fi-name">${f.name}</span>
-              <span class="fi-size">${fmtBytes(f.size)}</span>
-              <div style="display:flex;gap:4px;flex-shrink:0">
-                ${f.fileKey
-                  ? `<button class="btn btn-secondary btn-sm" onclick="viewFileByKey(this,'${f.name}','${f.fileKey}')" title="Xem/Tải file">👁 Xem</button>
-                     <button class="btn btn-ghost btn-sm" onclick="downloadFileByKey('${f.name}','${f.fileKey}')" title="Tải xuống">⬇️</button>`
-                  : `<span class="text-muted text-xs">Chưa có file</span>`
-                }
-              </div>
-            </div>
-          `).join('')}
+          ${r.files.map(f => renderFileItem(f)).join('')}
         </div>
-      </div>`:''}
+      </div>`:''}}
     ${r.status==='graded'?`
       <div class="divider"></div>
       <div class="card card-sm" style="background:var(--success-bg);border-color:#bbf7d0">
@@ -484,45 +508,92 @@ window.saveGrade = function(e) {
 
 render();
 
-/* ════ FILE VIEWER ════ */
+
+/* ════ FILE RENDERING & VIEWING HELPERS ════ */
+function renderFileItem(f) {
+  const ext = (f.name || '').split('.').pop().toLowerCase();
+  const hasPath = Boolean(f.path);
+  const hasDataUrl = Boolean(f.dataUrl);
+  const hasKey = Boolean(f.fileKey);
+
+  let viewHtml = '';
+  let dlHtml = '';
+
+  if (hasPath) {
+    const fullUrl = f.path.startsWith('http') ? f.path : (location.origin + f.path);
+    if (ext === 'pdf') {
+      viewHtml = `<a href="${fullUrl}" target="_blank" class="btn btn-secondary btn-sm">👁 Xem</a>`;
+    } else {
+      const officeViewer = `https://view.officeapps.live.com/op/view.aspx?src=${encodeURIComponent(fullUrl)}`;
+      viewHtml = `<a href="${officeViewer}" target="_blank" class="btn btn-secondary btn-sm" title="Xem trực tuyến bằng Office Online">👁 Xem online</a>`;
+    }
+    dlHtml = `<a href="${fullUrl}" download="${f.name}" class="btn btn-ghost btn-sm" title="Tải xuống">⬇️ Tải file</a>`;
+  } else if (hasDataUrl) {
+    viewHtml = `<button class="btn btn-secondary btn-sm" onclick="viewFileDataUrl('${encodeURIComponent(f.name)}', this)" data-url="${f.dataUrl}">👁 Xem</button>`;
+    dlHtml = `<a href="${f.dataUrl}" download="${f.name}" class="btn btn-ghost btn-sm">⬇️ Tải file</a>`;
+  } else if (hasKey) {
+    viewHtml = `<button class="btn btn-secondary btn-sm" onclick="viewFileByKey(this, '${f.name}', '${f.fileKey}')">👁 Xem</button>`;
+    dlHtml = `<button class="btn btn-ghost btn-sm" onclick="downloadFileByKey('${f.name}', '${f.fileKey}')">⬇️ Tải file</button>`;
+  } else {
+    viewHtml = `<span class="badge badge-gray">File mẫu</span>`;
+  }
+
+  return `
+    <div class="file-item">
+      <span class="fi-icon">${fileIcon(f.name)}</span>
+      <span class="fi-name">${f.name}</span>
+      <span class="fi-size">${fmtBytes(f.size || 0)}</span>
+      <div style="display:flex;gap:4px;flex-shrink:0;align-items:center">
+        ${viewHtml}
+        ${dlHtml}
+      </div>
+    </div>`;
+}
+
+window.viewFileDataUrl = function(encodedName, btn) {
+  const name = decodeURIComponent(encodedName);
+  const dataUrl = btn.getAttribute('data-url');
+  if (!dataUrl) { showToast('Không tìm thấy dữ liệu file!', 'error'); return; }
+  viewFileData(name, dataUrl);
+};
+
 window.viewFileByKey = async function(btn, name, fileKey) {
   btn.textContent = '⏳'; btn.disabled = true;
   const dataUrl = await FileStore.get(fileKey);
   btn.textContent = '👁 Xem'; btn.disabled = false;
-  if (!dataUrl) { showToast('Không tìm thấy file! Có thể trình duyệt đã xóa cache.', 'error'); return; }
+  if (!dataUrl) { showToast('Không tìm thấy file trong kho lưu trữ!', 'error'); return; }
   viewFileData(name, dataUrl);
 };
+
 window.downloadFileByKey = async function(name, fileKey) {
   const dataUrl = await FileStore.get(fileKey);
   if (!dataUrl) { showToast('Không tìm thấy file!', 'error'); return; }
   const a = document.createElement('a'); a.href = dataUrl; a.download = name; a.click();
 };
-window.viewFile = function(btn) {
-  const dataUrl = btn.getAttribute('data-url');
-  const name = btn.getAttribute('data-fname') || '?';
-  if (!dataUrl) { showToast('File không có sẵn dữ liệu để xem!', 'error'); return; }
-  const ext = name.split('.').pop().toLowerCase();
-  viewFileData(name, dataUrl);
-};
+
 function viewFileData(name, dataUrl) {
-  const ext = name.split('.').pop().toLowerCase();
+  const ext = (name || '').split('.').pop().toLowerCase();
   const byteStr = atob(dataUrl.split(',')[1]);
   const ab = new ArrayBuffer(byteStr.length);
   const ia = new Uint8Array(ab);
-  for (let i=0;i<byteStr.length;i++) ia[i]=byteStr.charCodeAt(i);
-  const mimeMap = { pdf:'application/pdf', docx:'application/vnd.openxmlformats-officedocument.wordprocessingml.document', doc:'application/msword', pptx:'application/vnd.openxmlformats-officedocument.presentationml.presentation', ppt:'application/vnd.ms-powerpoint' };
+  for (let i = 0; i < byteStr.length; i++) ia[i] = byteStr.charCodeAt(i);
+  const mimeMap = {
+    pdf: 'application/pdf',
+    docx: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+    doc: 'application/msword',
+    pptx: 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+    ppt: 'application/vnd.ms-powerpoint'
+  };
   const mime = mimeMap[ext] || 'application/octet-stream';
   const blob = new Blob([ab], { type: mime });
   const url = URL.createObjectURL(blob);
   if (ext === 'pdf') {
     window.open(url, '_blank');
   } else {
-    // Tải file về → mở bằng Office
     const a = document.createElement('a'); a.href = url; a.download = name; a.click();
-    setTimeout(() => showToast(`✅ Đã tải ${name}. Mở bằng Word/PowerPoint để xem.`, 'info'), 300);
+    showToast(`✅ Đang tải ${name}. Mở bằng Office để xem nội dung.`, 'info');
   }
 }
-
 </script>
 </body>
 </html>

@@ -18,7 +18,26 @@ const K = {
 // ── Raw DB helpers ──────────────────────────────────────────
 const _get = k => { try { return JSON.parse(localStorage.getItem(k)) || []; } catch { return []; } };
 const _getObj = k => { try { return JSON.parse(localStorage.getItem(k)) || null; } catch { return null; } };
-const _set = (k, v) => localStorage.setItem(k, JSON.stringify(v));
+const _set = (k, v) => {
+  try {
+    localStorage.setItem(k, JSON.stringify(v));
+  } catch (err) {
+    console.warn('localStorage quota error for ' + k + ':', err);
+    if (k === K.REPORTS && Array.isArray(v)) {
+      const light = v.map(r => ({
+        ...r,
+        files: (r.files || []).map(f => {
+          if (f.dataUrl && f.dataUrl.length > 50000) {
+            const { dataUrl, ...rest } = f;
+            return rest;
+          }
+          return f;
+        })
+      }));
+      try { localStorage.setItem(k, JSON.stringify(light)); } catch (e) {}
+    }
+  }
+};
 // sessionStorage helpers – riêng biệt theo từng tab (hỗ trợ đăng nhập 2 tài khoản cùng lúc)
 const _ssGet = k => { try { return JSON.parse(sessionStorage.getItem(k)) || null; } catch { return null; } };
 const _ssSet = (k, v) => sessionStorage.setItem(k, JSON.stringify(v));
@@ -205,17 +224,35 @@ const DB = {
     _api('/api/grades', 'POST', upd);
   },
 
-  // ─ Session ─
-  session() { return _getObj(K.SESSION); },
-  setSession(u) { _set(K.SESSION, u); },
-  clearSession() { localStorage.removeItem(K.SESSION); },
+  // ─ Session (sessionStorage để mỗi tab là một tài khoản riêng biệt) ─
+  session() {
+    let s = _ssGet(K.SESSION);
+    if (!s) {
+      s = _getObj(K.SESSION);
+      if (s) {
+        _ssSet(K.SESSION, s);
+        try { localStorage.removeItem(K.SESSION); } catch {}
+      }
+    }
+    return s;
+  },
+  setSession(u) {
+    _ssSet(K.SESSION, u);
+  },
+  clearSession() {
+    _ssDel(K.SESSION);
+    try { localStorage.removeItem(K.SESSION); } catch {}
+  },
 
-  // ─ Current class ─
+  // ─ Current class (hỗ trợ lọc lớp riêng theo tab) ─
   curClassId() {
-    const v = localStorage.getItem(K.CUR_CLASS);
+    const v = sessionStorage.getItem(K.CUR_CLASS) || localStorage.getItem(K.CUR_CLASS);
     return (!v || v === 'all') ? null : v;
   },
-  setCurClass(id) { localStorage.setItem(K.CUR_CLASS, id || 'all'); },
+  setCurClass(id) {
+    sessionStorage.setItem(K.CUR_CLASS, id || 'all');
+    localStorage.setItem(K.CUR_CLASS, id || 'all');
+  },
 };
 
 // ── Utilities ───────────────────────────────────────────────
