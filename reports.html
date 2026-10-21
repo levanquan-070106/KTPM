@@ -1,4 +1,4 @@
-<!DOCTYPE html>
+﻿<!DOCTYPE html>
 <html lang="vi">
 <head>
   <meta charset="UTF-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/>
@@ -249,15 +249,26 @@ function renderGroup(el) {
 }
 
 /* ════ FILE UPLOAD HANDLERS ════ */
+// Đọc file thành base64 - lưu vĩnh viễn trong localStorage, không bị mất khi server ngủ đông
+function readFileAsBase64(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload  = e => resolve(e.target.result);
+    reader.onerror = reject;
+    reader.readAsDataURL(file);
+  });
+}
+
 window.handleFiles = function(files) {
   const allowed = ['docx','doc','pptx','ppt','pdf'];
-  Array.from(files).forEach(f => {
+  Array.from(files).forEach(async f => {
     const ext = f.name.split('.').pop().toLowerCase();
     if (!allowed.includes(ext)) { showToast(`File ${f.name} không được hỗ trợ!`, 'error'); return; }
     if (f.size > 20*1024*1024) { showToast(`File ${f.name} quá lớn (>20MB)!`, 'error'); return; }
-    // Check duplicate
     if (pendingFiles.find(p=>p.name===f.name)) { showToast(`File ${f.name} đã được thêm!`, 'warning'); return; }
-    pendingFiles.push({ name:f.name, size:f.size, type:ext, rawFile: f });
+    showToast(`Đang đọc ${f.name}...`, 'info');
+    const dataUrl = await readFileAsBase64(f);
+    pendingFiles.push({ name:f.name, size:f.size, type:ext, dataUrl, rawFile: f });
     renderFileList();
   });
 };
@@ -270,7 +281,7 @@ function renderFileList() {
       <span class="fi-icon">${fileIcon(f.name)}</span>
       <span class="fi-name">${f.name}</span>
       <span class="fi-size">${fmtBytes(f.size)}</span>
-      ${f.path ? `<a href="${f.path}" target="_blank" class="btn btn-ghost btn-sm" title="Tải xuống">⬇️</a>` : ''}
+      ${f.dataUrl ? `<span style="font-size:10px;color:#16a34a;font-weight:600">✓ Đã đọc</span>` : `<span style="font-size:10px;color:#9ca3af">Đang đọc...</span>`}
       <button class="fi-remove" onclick="removeFile(${i})">✕</button>
     </div>`).join('');
 }
@@ -313,27 +324,11 @@ window.submitReport = async function(e) {
   const plan    = document.getElementById('sub-plan').value.trim();
   if (!summary) { showToast('Vui lòng nhập nội dung báo cáo!', 'error'); return; }
 
-  // Process files
-  let uploadedFiles = pendingFiles.map(f => ({ name: f.name, size: f.size, type: f.type, path: f.path || null }));
-  const filesToUpload = pendingFiles.filter(f => f.rawFile);
-
-  if (location.protocol.startsWith('http') && filesToUpload.length > 0) {
-    try {
-      showToast('Đang tải file lên máy chủ Node.js...', 'info');
-      const fd = new FormData();
-      filesToUpload.forEach(f => fd.append('files', f.rawFile));
-      const res = await fetch('/api/upload', { method: 'POST', body: fd });
-      const data = await res.json();
-      if (data.success && data.files) {
-        uploadedFiles = uploadedFiles.map(f => {
-          const match = data.files.find(df => df.originalName === f.name);
-          return match ? { ...f, path: match.path } : f;
-        });
-      }
-    } catch (err) {
-      console.warn('Backend upload failed, saving locally:', err);
-    }
-  }
+  // Lưu file dưới dạng base64 vào object - không phụ thuộc server upload
+  const uploadedFiles = pendingFiles.map(f => ({
+    name: f.name, size: f.size, type: f.type,
+    dataUrl: f.dataUrl || null  // base64 data URL, lưu vào localStorage cùng với report
+  }));
 
   const group = DB.groupOfUser(user.id);
   const obj = { week, groupId:group.id, summary, plan, files: uploadedFiles,
@@ -381,11 +376,13 @@ window.viewReport = function(rid) {
               <span class="fi-icon">${fileIcon(f.name)}</span>
               <span class="fi-name">${f.name}</span>
               <span class="fi-size">${fmtBytes(f.size)}</span>
-              ${f.path ? `
-                <a href="${f.path}" target="_blank" download="${f.name}" class="btn btn-secondary btn-sm" title="Tải xuống">⬇️ Tải file</a>
-              ` : `
-                <button class="btn btn-ghost btn-sm" onclick="showToast('File mô phỏng mẫu','info')">📄</button>
-              `}
+              <div style="display:flex;gap:4px;flex-shrink:0">
+                ${f.dataUrl
+                  ? `<button class="btn btn-secondary btn-sm" onclick="viewFile(this)" data-fname="${f.name}" data-url="${f.dataUrl}" title="Xem trực tiếp">👁 Xem</button>
+                     <a href="${f.dataUrl}" download="${f.name}" class="btn btn-ghost btn-sm" title="Tải xuống">⬇️</a>`
+                  : `<span class="text-muted text-xs">Chưa có file</span>`
+                }
+              </div>
             </div>
           `).join('')}
         </div>
@@ -441,6 +438,35 @@ window.saveGrade = function(e) {
 };
 
 render();
+
+/* ════ FILE VIEWER ════ */
+window.viewFile = function(btn) {
+  const dataUrl = btn.getAttribute('data-url');
+  const name = btn.getAttribute('data-fname') || '?';
+  if (!dataUrl) { showToast('File không có sẵn dữ liệu để xem!', 'error'); return; }
+  const ext = name.split('.').pop().toLowerCase();
+  if (ext === 'pdf') {
+    // PDF: open via blob URL in new tab
+    const byteStr = atob(dataUrl.split(',')[1]);
+    const ab = new ArrayBuffer(byteStr.length);
+    const ia = new Uint8Array(ab);
+    for (let i=0;i<byteStr.length;i++) ia[i]=byteStr.charCodeAt(i);
+    const blob = new Blob([ab], {type:'application/pdf'});
+    window.open(URL.createObjectURL(blob), '_blank');
+  } else {
+    // DOCX/PPTX/DOC/PPT: download then open via Google Docs Viewer
+    // First trigger download so user has the file
+    const a = document.createElement('a');
+    a.href = dataUrl;
+    a.download = name;
+    a.click();
+    // Then open Google Docs Viewer (needs public URL - show message)
+    setTimeout(() => {
+      showToast('File đã được tải xuống. Mở bằng Microsoft Word/PowerPoint để xem nội dung.', 'info');
+    }, 500);
+  }
+};
+
 </script>
 </body>
 </html>
