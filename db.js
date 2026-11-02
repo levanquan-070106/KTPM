@@ -21,7 +21,9 @@ function initSchema() {
       email TEXT UNIQUE NOT NULL,
       password TEXT NOT NULL,
       role TEXT NOT NULL,
-      class_id TEXT
+      class_id TEXT,
+      mssv TEXT,
+      original_email TEXT
     );
 
     CREATE TABLE IF NOT EXISTS classes (
@@ -116,8 +118,10 @@ function initSchema() {
     );
   `);
 
-  // Đảm bảo bảng users cũ (nếu có) có cột class_id
+  // Đảm bảo bảng users cũ (nếu có) có cột class_id, mssv, original_email
   try { db.exec('ALTER TABLE users ADD COLUMN class_id TEXT'); } catch {}
+  try { db.exec('ALTER TABLE users ADD COLUMN mssv TEXT'); } catch {}
+  try { db.exec('ALTER TABLE users ADD COLUMN original_email TEXT'); } catch {}
 
   // Seed data ban đầu nếu bảng users trống
   const count = db.prepare('SELECT COUNT(*) as c FROM users').get().c;

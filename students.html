@@ -209,7 +209,9 @@ window.exportStudentExcel = function() {
       data.push({
         'STT': idx,
         'Họ và tên': u.name,
-        'Email': u.email,
+        'MSSV': u.mssv || '',
+        'Email trường': u.originalEmail || '',
+        'Email đăng nhập': u.email,
         'Vai trò': u.role === 'nhomt' ? 'Nhóm trưởng' : 'Sinh viên',
         'Lớp học': c?.name || '',
         'Nhóm dự án': g.name,

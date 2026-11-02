@@ -125,8 +125,22 @@ const DB = {
     _api(`/api/classes/${upd.id}`, 'PUT', upd);
   },
   deleteClass(id) {
+    // 1. Xóa các sinh viên/nhóm trưởng thuộc lớp này để không còn bị trùng lặp tài khoản khi tạo lớp mới
+    const usersInClass = this.users().filter(u => u.role !== 'giaovien' && (u.classId === id || this.userClassId(u) === id));
+    usersInClass.forEach(u => {
+      _api(`/api/users/${u.id}`, 'DELETE');
+    });
+    _set(K.USERS, this.users().filter(u => u.role === 'giaovien' || (u.classId !== id && this.userClassId(u) !== id)));
+
+    // 2. Xóa các nhóm, công việc, báo cáo thuộc lớp này
+    const classGroupIds = this.groups().filter(g => g.classId === id).map(g => g.id);
+    _set(K.TASKS, this.tasks().filter(t => !classGroupIds.includes(t.groupId)));
+    _set(K.REPORTS, this.reports().filter(r => !classGroupIds.includes(r.groupId)));
+    _set(K.GRADES, this.grades().filter(gr => !classGroupIds.includes(gr.groupId)));
+    _set(K.GROUPS, this.groups().filter(g => g.classId !== id));
+
+    // 3. Xóa lớp
     _set(K.CLASSES, this.classes().filter(c => c.id !== id));
-    _set(K.GROUPS,  this.groups().filter(g => g.classId !== id));
     _api(`/api/classes/${id}`, 'DELETE');
   },
 
@@ -389,7 +403,10 @@ function seedIfNeeded(force = false) {
   const hasClasses = classes.length > 0;
   const hasNewUser = users.some(u => u.email === 'gv1@edu.vn');
 
-  if (!force && users.length > 0 && hasClasses && hasNewUser) return;
+  // Nếu người dùng đã từng khởi tạo dữ liệu hoặc đã có lớp/người dùng, không tự động nạp lại mẫu gây trùng lặp
+  const hasSeededBefore = localStorage.getItem('ktpmud_seeded');
+  if (!force && (hasSeededBefore || users.length > 0 || hasClasses)) return;
+  localStorage.setItem('ktpmud_seeded', 'true');
 
   // Users (Phân tách rõ sinh viên thuộc từng lớp học: c1 = K68A, c2 = K68B)
   _set(K.USERS, [

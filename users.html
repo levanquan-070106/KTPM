@@ -39,9 +39,19 @@
         <label class="form-label">Họ và tên <span class="form-required">*</span></label>
         <input id="u-name" class="form-control" placeholder="Nguyễn Văn A" required/>
       </div>
+      <div class="form-row">
+        <div class="form-group">
+          <label class="form-label">Email đăng nhập <span class="form-required">*</span></label>
+          <input id="u-email" class="form-control" type="email" placeholder="example@edu.vn" required/>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Mã số sinh viên (MSSV)</label>
+          <input id="u-mssv" class="form-control" placeholder="VD: 202414321"/>
+        </div>
+      </div>
       <div class="form-group">
-        <label class="form-label">Email <span class="form-required">*</span></label>
-        <input id="u-email" class="form-control" type="email" placeholder="example@edu.vn" required/>
+        <label class="form-label">Email gốc / Email trường cấp <span class="form-hint">(tùy chọn)</span></label>
+        <input id="u-orig-email" class="form-control" type="email" placeholder="an.nv241432@sis.hust.edu.vn"/>
       </div>
       <div class="form-row">
         <div class="form-group">
@@ -282,7 +292,9 @@ function render() {
           <tr>
             <th>#</th>
             <th>Họ và tên</th>
-            <th>Email</th>
+            <th>MSSV</th>
+            <th>Email đăng nhập</th>
+            <th>Email gốc</th>
             <th>Vai trò</th>
             <th>Lớp học</th>
             <th>Nhóm dự án</th>
@@ -292,7 +304,7 @@ function render() {
         </thead>
         <tbody>
           ${users.length === 0 ? `
-            <tr><td colspan="8"><div class="empty"><div class="empty-icon">👤</div><p>Không tìm thấy tài khoản nào</p></div></td></tr>
+            <tr><td colspan="10"><div class="empty"><div class="empty-icon">👤</div><p>Không tìm thấy tài khoản nào</p></div></td></tr>
           ` : users.map((u, idx) => {
             const group = DB.groupOfUser(u.id);
             const uCid = DB.userClassId(u);
@@ -306,7 +318,9 @@ function render() {
                   ${u.id === user.id ? '<span class="badge badge-black" style="font-size:9px">Bạn</span>' : ''}
                 </div>
               </td>
-              <td class="td-muted">${u.email}</td>
+              <td>${u.mssv ? `<span class="badge badge-gray" style="font-family:monospace">${u.mssv}</span>` : '<span class="text-muted">—</span>'}</td>
+              <td class="td-muted" style="font-family:monospace;font-size:12px">${u.email}</td>
+              <td style="font-size:12px;color:var(--text-secondary)">${u.originalEmail || '<span class="text-muted">—</span>'}</td>
               <td>
                 ${u.role === 'giaovien' ? '<span class="badge badge-black">GV</span>' :
                   u.role === 'nhomt' ? '<span class="badge badge-gray font-bold">NT</span>' :
@@ -361,6 +375,8 @@ window.openUserModal = function(uidVal = '') {
   document.getElementById('u-id').value = uidVal;
   document.getElementById('u-name').value = u?.name || '';
   document.getElementById('u-email').value = u?.email || '';
+  document.getElementById('u-mssv').value = u?.mssv || '';
+  document.getElementById('u-orig-email').value = u?.originalEmail || '';
   document.getElementById('u-pwd').value = '';
   const role = u?.role || 'sinhvien';
   document.getElementById('u-role').value = role;
@@ -383,6 +399,8 @@ window.saveUser = function(e) {
   const id = document.getElementById('u-id').value;
   const name = document.getElementById('u-name').value.trim();
   const email = document.getElementById('u-email').value.trim();
+  const mssv = document.getElementById('u-mssv').value.trim();
+  const originalEmail = document.getElementById('u-orig-email').value.trim();
   const pwd = document.getElementById('u-pwd').value;
   const role = document.getElementById('u-role').value;
   const classId = role === 'giaovien' ? null : document.getElementById('u-class').value;
@@ -399,14 +417,14 @@ window.saveUser = function(e) {
 
   let finalId = id;
   if (id) {
-    const upd = { id, name, email, role, classId };
+    const upd = { id, name, email, role, classId, mssv: mssv || null, originalEmail: originalEmail || null };
     if (pwd) upd.password = pwd;
     DB.updateUser(upd);
     showToast('✅ Đã cập nhật tài khoản!', 'success');
   } else {
     if (!pwd) { showToast('Vui lòng nhập mật khẩu cho tài khoản mới!', 'error'); return; }
     finalId = uid();
-    DB.addUser({ id: finalId, name, email, password: pwd, role, classId });
+    DB.addUser({ id: finalId, name, email, password: pwd, role, classId, mssv: mssv || null, originalEmail: originalEmail || null });
     showToast('✅ Đã thêm tài khoản mới vào lớp!', 'success');
   }
 
@@ -485,11 +503,12 @@ window.handleImportFile = function(file) {
         return;
       }
 
-      // Tìm cột Họ và tên, MSSV, Nhóm/STT Nhóm, Tên đề tài
+      // Tìm cột Họ và tên, MSSV, Email gốc, Nhóm/STT Nhóm, Tên đề tài
       const firstRow = raw[0];
       const keys = Object.keys(firstRow);
       const nameKey = keys.find(k => /h[oọ]\s*(v[aà])\s*t[eê]n|h[oọ]\s*t[eê]n|t[eê]n\s*sv|t[eê]n/i.test(k)) || keys[0];
       const mssvKey = keys.find(k => /mssv|m[aã]\s*s[oố]\s*sv|student\s*id|s[oố]\s*hi[eệ]u/i.test(k)) || keys[1];
+      const emailOrigKey = keys.find(k => /email\s*g[oố]c|email\s*tr[uư][oờ]ng|email\s*sv|email|mail/i.test(k) && k !== mssvKey && k !== nameKey);
       const groupKey = keys.find(k => /nh[oó]m|stt\s*nh[oó]m|team|group/i.test(k));
       const projectKey = keys.find(k => /[đd][eề]\s*t[aà]i|project|topic|t[eê]n\s*[đd][eề]|n[oộ]i\s*dung/i.test(k));
 
@@ -503,6 +522,7 @@ window.handleImportFile = function(file) {
           const mssv = String(r[mssvKey] || '').trim().replace(/\D/g, ''); // chỉ lấy chữ số
           const last3 = mssv.slice(-3).padStart(3, '0');
           const email = `${last3}@edu.vn`;
+          const originalEmail = emailOrigKey ? String(r[emailOrigKey] || '').trim() : '';
           const exists = Boolean(DB.findUser(email));
 
           // Chuẩn hóa tên nhóm: ví dụ "1" -> "Nhóm 01", "Nhóm 1" -> "Nhóm 01", hoặc giữ nguyên nếu đã có chữ "Nhóm ..."
@@ -531,7 +551,7 @@ window.handleImportFile = function(file) {
             }
           }
 
-          return { name, mssv, email, groupName, projectName, role, exists };
+          return { name, mssv, email, originalEmail, groupName, projectName, role, exists };
         })
         .filter(r => r.name); // bỏ hàng rỗng
 
@@ -603,33 +623,38 @@ window.confirmImport = function() {
     if (!existingUser) {
       userId = uid();
       DB.addUser({
-        id:       userId,
-        name:     r.name,
-        email:    r.email,
-        password: '123456',
-        role:     r.role,
-        classId:  classId
+        id:            userId,
+        name:          r.name,
+        email:         r.email,
+        password:      '123456',
+        role:          r.role,
+        classId:       classId,
+        mssv:          r.mssv || null,
+        originalEmail: r.originalEmail || null
       });
       r.finalUserId = userId;
     } else {
-      // Nếu user đã tồn tại, cập nhật vai trò (nếu là nhóm trưởng) và classId
+      // Nếu user đã tồn tại, cập nhật vai trò (nếu là nhóm trưởng), classId, mssv, originalEmail
       r.finalUserId = existingUser.id;
       DB.updateUser({
-        id: existingUser.id,
-        role: r.role,
-        classId: classId
+        id:            existingUser.id,
+        role:          r.role,
+        classId:       classId,
+        mssv:          r.mssv || existingUser.mssv || null,
+        originalEmail: r.originalEmail || existingUser.originalEmail || null
       });
     }
 
     createdList.push({
-      name: r.name,
-      mssv: r.mssv,
-      email: r.email,
-      password: '123456',
-      role: r.role === 'nhomt' ? 'Nhóm trưởng' : 'Sinh viên',
-      groupName: r.groupName || 'Chưa phân nhóm',
-      projectName: r.projectName || '—',
-      classId: cls?.name || classId
+      name:          r.name,
+      mssv:          r.mssv,
+      originalEmail: r.originalEmail || '—',
+      email:         r.email,
+      password:      '123456',
+      role:          r.role === 'nhomt' ? 'Nhóm trưởng' : 'Sinh viên',
+      groupName:     r.groupName || 'Chưa phân nhóm',
+      projectName:   r.projectName || '—',
+      classId:       cls?.name || classId
     });
   });
 
@@ -708,8 +733,8 @@ function exportAccountsExcel(list, className) {
   if (!window.XLSX) { showToast('Thư viện XLSX chưa sẵn sàng!', 'error'); return; }
 
   const wsData = [
-    ['STT', 'Họ và tên', 'MSSV', 'Email đăng nhập', 'Mật khẩu', 'Vai trò', 'Nhóm', 'Tên đề tài', 'Lớp học'],
-    ...list.map((r, i) => [i + 1, r.name, r.mssv, r.email, r.password, r.role || 'Sinh viên', r.groupName || '—', r.projectName || '—', r.classId])
+    ['STT', 'Họ và tên', 'MSSV', 'Email gốc (trường cấp)', 'Email đăng nhập hệ thống', 'Mật khẩu', 'Vai trò', 'Nhóm', 'Tên đề tài', 'Lớp học'],
+    ...list.map((r, i) => [i + 1, r.name, r.mssv || '—', r.originalEmail || '—', r.email, r.password, r.role || 'Sinh viên', r.groupName || '—', r.projectName || '—', r.classId])
   ];
 
   const ws = XLSX.utils.aoa_to_sheet(wsData);
@@ -719,7 +744,8 @@ function exportAccountsExcel(list, className) {
     { wch: 5 },  // STT
     { wch: 25 }, // Họ và tên
     { wch: 14 }, // MSSV
-    { wch: 22 }, // Email
+    { wch: 28 }, // Email gốc
+    { wch: 24 }, // Email đăng nhập
     { wch: 12 }, // Mật khẩu
     { wch: 15 }, // Vai trò
     { wch: 14 }, // Nhóm
@@ -754,17 +780,27 @@ window.exportCurrentUsers = function() {
 
   const roleLabel = r => r === 'nhomt' ? 'Nhóm trưởng' : 'Sinh viên';
   const wsData = [
-    ['STT', 'Họ và tên', 'Email đăng nhập', 'Mật khẩu', 'Vai trò', 'Lớp học', 'Nhóm dự án'],
+    ['STT', 'Họ và tên', 'MSSV', 'Email gốc (trường cấp)', 'Email đăng nhập hệ thống', 'Mật khẩu', 'Vai trò', 'Lớp học', 'Nhóm dự án'],
     ...users.map((u, i) => {
       const cls = DB.findClass(DB.userClassId(u));
       const grp = DB.groupOfUser(u.id);
-      return [i + 1, u.name, u.email, u.password || '123456', roleLabel(u.role), cls?.name || '—', grp?.name || 'Chưa có nhóm'];
+      return [
+        i + 1,
+        u.name,
+        u.mssv || '—',
+        u.originalEmail || '—',
+        u.email,
+        u.password || '123456',
+        roleLabel(u.role),
+        cls?.name || '—',
+        grp?.name || 'Chưa có nhóm'
+      ];
     })
   ];
 
   const ws = XLSX.utils.aoa_to_sheet(wsData);
   ws['!cols'] = [
-    { wch: 5 }, { wch: 25 }, { wch: 22 }, { wch: 12 }, { wch: 15 }, { wch: 22 }, { wch: 18 }
+    { wch: 5 }, { wch: 25 }, { wch: 14 }, { wch: 28 }, { wch: 24 }, { wch: 12 }, { wch: 15 }, { wch: 22 }, { wch: 18 }
   ];
 
   const wb = XLSX.utils.book_new();

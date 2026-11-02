@@ -204,7 +204,22 @@ window.exportExcelAll = function() {
     const avg=reps.length>0?(reps.reduce((s,r)=>s+r.grade,0)/reps.length).toFixed(1):'';
     g.members.forEach(mid=>{
       const m=DB.findUserById(mid); if(!m)return; idx++;
-      data.push({'STT':idx,'Email':m.email,'Họ tên':m.name,'Vai trò':m.role==='nhomt'?'Nhóm trưởng':'Sinh viên','Nhóm':g.name,'Dự án':g.project,'TB Báo cáo':avg,'ĐQT (30%)':grade?.processScore??'','ĐGK (20%)':grade?.midtermScore??'','ĐCK (50%)':grade?.finalScore??'','Tổng kết':grade?.totalScore??'','Xếp loại':grade?.totalScore!=null?gradeLetterFromScore(grade.totalScore):''});
+      data.push({
+        'STT': idx,
+        'Họ và tên': m.name,
+        'MSSV': m.mssv || '',
+        'Email trường': m.originalEmail || '',
+        'Email đăng nhập': m.email,
+        'Vai trò': m.role==='nhomt'?'Nhóm trưởng':'Sinh viên',
+        'Nhóm': g.name,
+        'Đề tài dự án': g.project,
+        'TB Báo cáo': avg,
+        'ĐQT (30%)': grade?.processScore??'',
+        'ĐGK (20%)': grade?.midtermScore??'',
+        'ĐCK (50%)': grade?.finalScore??'',
+        'Tổng kết': grade?.totalScore??'',
+        'Xếp loại': grade?.totalScore!=null?gradeLetterFromScore(grade.totalScore):''
+      });
     });
   });
 
