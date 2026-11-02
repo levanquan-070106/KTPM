@@ -4,6 +4,23 @@
   <meta charset="UTF-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/>
   <title>Quản lý tài khoản – KTPMUD</title>
   <link rel="stylesheet" href="style.css"/>
+  <!-- SheetJS để đọc file Excel trực tiếp trên trình duyệt -->
+  <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+  <style>
+    .import-table{width:100%;border-collapse:collapse;font-size:12px;margin-top:8px}
+    .import-table th{background:#f3f4f6;padding:6px 8px;text-align:left;font-weight:600;border-bottom:1px solid #e5e7eb}
+    .import-table td{padding:5px 8px;border-bottom:1px solid #f3f4f6}
+    .import-table tr.row-dup td{background:#fef2f2;color:#dc2626}
+    .import-table tr.row-ok td{background:#f0fdf4}
+    .drop-zone-xl{border:2px dashed #d1d5db;border-radius:8px;padding:32px;text-align:center;cursor:pointer;transition:all .2s;background:#fafafa}
+    .drop-zone-xl:hover,.drop-zone-xl.drag{border-color:#374151;background:#f3f4f6}
+    .drop-zone-xl input[type=file]{display:none}
+    .badge-dup{display:inline-block;padding:1px 6px;border-radius:9px;background:#fecaca;color:#dc2626;font-size:10px;font-weight:600}
+    .badge-new{display:inline-block;padding:1px 6px;border-radius:9px;background:#bbf7d0;color:#15803d;font-size:10px;font-weight:600}
+    .import-summary{display:flex;gap:12px;flex-wrap:wrap;margin-bottom:12px}
+    .import-summary .is-item{background:#f3f4f6;border-radius:6px;padding:6px 12px;font-size:12px}
+    .import-summary .is-item strong{font-size:15px;display:block}
+  </style>
 </head>
 <body>
 <div id="app"></div>
@@ -64,6 +81,92 @@
   </div>
 </div>
 
+<!-- Modal Import từ Excel -->
+<div class="modal-overlay" id="m-import">
+  <div class="modal" style="max-width:760px;width:95%">
+    <div class="modal-header">
+      <div class="modal-title">📥 Import tài khoản từ file Excel</div>
+      <button class="modal-close" onclick="closeModal('m-import')">✕</button>
+    </div>
+    <div style="padding:0 4px">
+
+      <!-- Bước 1: Chọn lớp & Upload file -->
+      <div id="import-step1">
+        <div class="form-group" style="margin-bottom:16px">
+          <label class="form-label">🏫 Thêm tài khoản vào lớp học <span class="form-required">*</span></label>
+          <select id="import-class" class="form-control" style="max-width:340px">
+          </select>
+        </div>
+        <div class="form-group">
+          <label class="form-label" style="margin-bottom:8px">
+            📄 Chọn file Excel
+            <span class="form-hint">(.xlsx, .xls – cột <strong>Họ và tên</strong> + cột <strong>MSSV</strong>)</span>
+          </label>
+          <div class="drop-zone-xl" id="import-dropzone" onclick="document.getElementById('import-file').click()">
+            <input type="file" id="import-file" accept=".xlsx,.xls" onchange="handleImportFile(this.files[0])"/>
+            <div style="font-size:32px;margin-bottom:8px">📊</div>
+            <div style="font-weight:600;color:#374151;margin-bottom:4px">Kéo thả file Excel vào đây hoặc click để chọn</div>
+            <div style="font-size:12px;color:#9ca3af">Định dạng hỗ trợ: .xlsx, .xls</div>
+          </div>
+        </div>
+
+        <!-- Hướng dẫn định dạng file -->
+        <div class="card card-sm" style="background:#fffbeb;border-color:#fcd34d;margin-top:12px">
+          <div style="font-weight:600;font-size:12px;margin-bottom:6px;color:#92400e">📋 Định dạng file Excel yêu cầu:</div>
+          <table style="font-size:11px;width:100%;border-collapse:collapse">
+            <tr style="background:#fef3c7">
+              <th style="padding:4px 8px;border:1px solid #fcd34d;text-align:left">Họ và tên</th>
+              <th style="padding:4px 8px;border:1px solid #fcd34d;text-align:left">MSSV</th>
+            </tr>
+            <tr>
+              <td style="padding:4px 8px;border:1px solid #fcd34d">Nguyễn Văn An</td>
+              <td style="padding:4px 8px;border:1px solid #fcd34d">202414321</td>
+            </tr>
+            <tr>
+              <td style="padding:4px 8px;border:1px solid #fcd34d">Trần Thị Bình</td>
+              <td style="padding:4px 8px;border:1px solid #fcd34d">202414456</td>
+            </tr>
+          </table>
+          <div style="font-size:11px;color:#78350f;margin-top:6px">
+            → Email tự tạo: <code>321@edu.vn</code>, <code>456@edu.vn</code> (3 số cuối MSSV) · Mật khẩu: <code>123456</code>
+          </div>
+        </div>
+      </div>
+
+      <!-- Bước 2: Preview danh sách sẽ được tạo -->
+      <div id="import-step2" style="display:none">
+        <div class="import-summary" id="import-summary"></div>
+        <div style="max-height:320px;overflow-y:auto;border:1px solid #e5e7eb;border-radius:8px">
+          <table class="import-table">
+            <thead>
+              <tr>
+                <th>#</th>
+                <th>Họ và tên</th>
+                <th>MSSV</th>
+                <th>Email sẽ tạo</th>
+                <th>Trạng thái</th>
+              </tr>
+            </thead>
+            <tbody id="import-preview-body"></tbody>
+          </table>
+        </div>
+        <div style="margin-top:12px;font-size:12px;color:#6b7280">
+          <span class="badge-new">Mới</span> = tài khoản mới &nbsp;|&nbsp;
+          <span class="badge-dup">Trùng</span> = email đã tồn tại, sẽ bỏ qua
+        </div>
+      </div>
+    </div>
+
+    <div class="modal-footer">
+      <button type="button" class="btn btn-secondary" onclick="closeModal('m-import')">Hủy</button>
+      <button type="button" class="btn btn-secondary" id="import-btn-back"
+        style="display:none" onclick="resetImport()">← Chọn file khác</button>
+      <button type="button" class="btn btn-primary" id="import-btn-confirm"
+        style="display:none" onclick="confirmImport()">✅ Tạo tài khoản hàng loạt</button>
+    </div>
+  </div>
+</div>
+
 <script src="data.js"></script>
 <script src="layout.js"></script>
 <script>
@@ -104,7 +207,10 @@ function render() {
         <h1>⚙️ Quản lý tài khoản</h1>
         <p class="page-desc">${totalAll} tài khoản trong hệ thống · Phân theo từng lớp học</p>
       </div>
-      <button class="btn btn-primary" onclick="openUserModal()">➕ Thêm tài khoản</button>
+      <div class="flex gap-2">
+        <button class="btn btn-secondary" onclick="openImportModal()">📥 Import từ Excel</button>
+        <button class="btn btn-primary" onclick="openUserModal()">➕ Thêm tài khoản</button>
+      </div>
     </div>
 
     <!-- Bộ lọc theo Lớp học -->
@@ -322,6 +428,153 @@ window.delUser = function(id) {
 };
 
 render();
+
+/* ════ IMPORT TỪ EXCEL ════ */
+let importRows = []; // dữ liệu đã đọc từ file Excel
+
+window.openImportModal = function() {
+  // Điền danh sách lớp vào dropdown
+  const classes = DB.classes();
+  const sel = document.getElementById('import-class');
+  const defaultCid = filterClassId !== 'all' ? filterClassId : DB.curClassId() || classes[0]?.id || '';
+  sel.innerHTML = classes.map(c =>
+    `<option value="${c.id}" ${c.id === defaultCid ? 'selected' : ''}>${c.name} (${c.semester})</option>`
+  ).join('');
+  resetImport();
+  openModal('m-import');
+};
+
+window.resetImport = function() {
+  importRows = [];
+  document.getElementById('import-step1').style.display = '';
+  document.getElementById('import-step2').style.display = 'none';
+  document.getElementById('import-btn-back').style.display = 'none';
+  document.getElementById('import-btn-confirm').style.display = 'none';
+  document.getElementById('import-file').value = '';
+  // reset dropzone
+  const dz = document.getElementById('import-dropzone');
+  dz.style.borderColor = '';
+};
+
+window.handleImportFile = function(file) {
+  if (!file) return;
+  if (!window.XLSX) {
+    showToast('Thư viện đọc Excel chưa sẵn sàng, vui lòng thử lại!', 'error');
+    return;
+  }
+  const reader = new FileReader();
+  reader.onload = function(e) {
+    try {
+      const wb = XLSX.read(e.target.result, { type: 'array' });
+      const ws = wb.Sheets[wb.SheetNames[0]];
+      const raw = XLSX.utils.sheet_to_json(ws, { defval: '' });
+
+      if (!raw || raw.length === 0) {
+        showToast('File Excel trống hoặc không đọc được dữ liệu!', 'error');
+        return;
+      }
+
+      // Tìm cột Họ và tên + MSSV (linh hoạt với tên cột khác nhau)
+      const firstRow = raw[0];
+      const keys = Object.keys(firstRow);
+      const nameKey = keys.find(k => /h[oọ]\s*(v[aà])\s*t[eê]n|t[eê]n/i.test(k)) || keys[0];
+      const mssvKey = keys.find(k => /mssv|m[aã]\s*s[oố]\s*sv|student\s*id|s[oố]\s*hi[eệ]u/i.test(k)) || keys[1];
+
+      importRows = raw
+        .filter(r => String(r[nameKey] || '').trim())
+        .map(r => {
+          const name = String(r[nameKey] || '').trim();
+          const mssv = String(r[mssvKey] || '').trim().replace(/\D/g, ''); // chỉ lấy chữ số
+          const last3 = mssv.slice(-3).padStart(3, '0');
+          const email = `${last3}@edu.vn`;
+          const exists = Boolean(DB.findUser(email));
+          return { name, mssv, email, exists };
+        })
+        .filter(r => r.name); // bỏ hàng rỗng
+
+      if (importRows.length === 0) {
+        showToast('Không tìm thấy dòng dữ liệu hợp lệ trong file!', 'error');
+        return;
+      }
+
+      renderImportPreview();
+    } catch (err) {
+      console.error(err);
+      showToast('Lỗi đọc file Excel: ' + err.message, 'error');
+    }
+  };
+  reader.readAsArrayBuffer(file);
+};
+
+function renderImportPreview() {
+  const newCount  = importRows.filter(r => !r.exists).length;
+  const dupCount  = importRows.filter(r => r.exists).length;
+
+  // Summary
+  document.getElementById('import-summary').innerHTML = `
+    <div class="is-item"><strong>${importRows.length}</strong>Tổng dòng trong file</div>
+    <div class="is-item" style="color:#15803d"><strong>${newCount}</strong>Tài khoản sẽ được tạo</div>
+    <div class="is-item" style="color:#dc2626"><strong>${dupCount}</strong>Email đã tồn tại (bỏ qua)</div>
+  `;
+
+  // Table
+  document.getElementById('import-preview-body').innerHTML = importRows.map((r, i) => `
+    <tr class="${r.exists ? 'row-dup' : 'row-ok'}">
+      <td class="text-muted">${i + 1}</td>
+      <td><strong>${r.name}</strong></td>
+      <td style="font-family:monospace">${r.mssv || '—'}</td>
+      <td style="font-family:monospace">${r.email}</td>
+      <td>${r.exists
+        ? '<span class="badge-dup">Trùng – bỏ qua</span>'
+        : '<span class="badge-new">Mới – sẽ tạo</span>'}</td>
+    </tr>
+  `).join('');
+
+  document.getElementById('import-step1').style.display = 'none';
+  document.getElementById('import-step2').style.display = '';
+  document.getElementById('import-btn-back').style.display = '';
+  document.getElementById('import-btn-confirm').style.display = newCount > 0 ? '' : 'none';
+  if (newCount === 0) showToast('Tất cả email đã tồn tại, không có tài khoản nào cần tạo thêm.', 'warning');
+}
+
+window.confirmImport = function() {
+  const classId = document.getElementById('import-class').value;
+  if (!classId) { showToast('Vui lòng chọn lớp học!', 'error'); return; }
+
+  const toCreate = importRows.filter(r => !r.exists);
+  if (toCreate.length === 0) { showToast('Không có tài khoản mới nào để tạo!', 'warning'); return; }
+
+  let created = 0;
+  toCreate.forEach(r => {
+    const newId = uid();
+    DB.addUser({
+      id:       newId,
+      name:     r.name,
+      email:    r.email,
+      password: '123456',
+      role:     'sinhvien',
+      classId:  classId
+    });
+    created++;
+  });
+
+  showToast(`✅ Đã tạo thành công ${created} tài khoản sinh viên vào lớp!`, 'success');
+  closeModal('m-import');
+  render();
+};
+
+// Drag-and-drop cho import dropzone
+document.addEventListener('DOMContentLoaded', () => {
+  const dz = document.getElementById('import-dropzone');
+  if (!dz) return;
+  dz.addEventListener('dragover', e => { e.preventDefault(); dz.classList.add('drag'); });
+  dz.addEventListener('dragleave', () => dz.classList.remove('drag'));
+  dz.addEventListener('drop', e => {
+    e.preventDefault(); dz.classList.remove('drag');
+    const file = e.dataTransfer.files[0];
+    if (file) { document.getElementById('import-file').files; handleImportFile(file); }
+  });
+});
 </script>
 </body>
 </html>
