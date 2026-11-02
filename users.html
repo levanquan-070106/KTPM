@@ -144,8 +144,9 @@
             </tr>
           </table>
           <div style="font-size:11px;color:#78350f;margin-top:6px;line-height:1.5">
-            • <strong>Tài khoản:</strong> Email tạo với đuôi <code>@gmail.com</code> (Lấy trực tiếp từ cột Gmail trong file nếu có, hoặc tạo tự động theo <code>MSSV@gmail.com</code>) · Mật khẩu mặc định: <code>123456</code><br/>
-            • <strong>Phân quyền & Nhóm:</strong> Người xuất hiện <strong>đầu tiên</strong> của mỗi nhóm sẽ là <strong>👑 Nhóm trưởng</strong>, các bạn phía sau là <strong>🎓 Thành viên</strong>. Hệ thống sẽ tự động tạo nhóm và gán đề tài vào đúng lớp học!
+            • <strong>Tài khoản:</strong> Chỉ nhận sinh viên có email đuôi <code>@gmail.com</code> (Không nhận mail trường HUST). Ai không có email <code>@gmail.com</code> hệ thống sẽ tự động bỏ qua.<br/>
+            • <strong>Đăng nhập Google:</strong> Sinh viên dùng chính mật khẩu tài khoản Google cá nhân của họ để xác thực khi đăng nhập.<br/>
+            • <strong>Phân quyền & Nhóm:</strong> Người xuất hiện <strong>đầu tiên</strong> có Gmail trong mỗi nhóm sẽ là <strong>👑 Nhóm trưởng</strong>, các bạn phía sau là <strong>🎓 Thành viên</strong>. Hệ thống sẽ tự động tạo nhóm và gán đề tài vào đúng lớp học!
           </div>
         </div>
       </div>
@@ -509,50 +510,39 @@ window.handleImportFile = function(file) {
         return;
       }
 
-      // Tìm cột Họ và tên, MSSV, Email gốc, Nhóm/STT Nhóm, Tên đề tài
+      // Tìm cột Họ và tên, MSSV, Email/Gmail, Nhóm/STT Nhóm, Tên đề tài
       const firstRow = raw[0];
       const keys = Object.keys(firstRow);
       const nameKey = keys.find(k => /h[oọ]\s*(v[aà])\s*t[eê]n|h[oọ]\s*t[eê]n|t[eê]n\s*sv|t[eê]n/i.test(k)) || keys[0];
       const mssvKey = keys.find(k => /mssv|m[aã]\s*s[oố]\s*sv|student\s*id|s[oố]\s*hi[eệ]u/i.test(k)) || keys[1];
-      const emailOrigKey = keys.find(k => /email\s*g[oố]c|email\s*tr[uư][oờ]ng|email\s*sv|email|mail/i.test(k) && k !== mssvKey && k !== nameKey);
+      const emailOrigKey = keys.find(k => /gmail|email|mail|t[aà]i\s*kho[aả]n/i.test(k) && k !== mssvKey && k !== nameKey);
       const groupKey = keys.find(k => /nh[oó]m|stt\s*nh[oó]m|team|group/i.test(k));
       const projectKey = keys.find(k => /[đd][eề]\s*t[aà]i|project|topic|t[eê]n\s*[đd][eề]|n[oộ]i\s*dung/i.test(k));
 
       // Tập hợp để theo dõi người đầu tiên trong từng nhóm xuất hiện trong danh sách
       const seenGroups = new Set();
+      let skippedCount = 0;
 
       importRows = raw
-        .filter(r => String(r[nameKey] || '').trim())
+        .filter(r => {
+          const name = String(r[nameKey] || '').trim();
+          if (!name) return false;
+
+          const rawEmail = emailOrigKey ? String(r[emailOrigKey] || '').trim().toLowerCase() : '';
+          // Chỉ lấy email có đuôi @gmail.com; bỏ qua email đuôi HUST (@sis.hust.edu.vn, @hust.edu.vn) hoặc dòng không có Gmail
+          const isGmail = rawEmail.endsWith('@gmail.com');
+          if (!isGmail) {
+            skippedCount++;
+            return false;
+          }
+          return true;
+        })
         .map(r => {
           const name = String(r[nameKey] || '').trim();
           const mssv = String(r[mssvKey] || '').trim().replace(/\D/g, ''); // chỉ lấy chữ số
-          const last3 = mssv.slice(-3).padStart(3, '0');
-          const rawEmail = emailOrigKey ? String(r[emailOrigKey] || '').trim() : '';
+          const rawEmail = String(r[emailOrigKey] || '').trim().toLowerCase();
+          const email = rawEmail; // Chắc chắn có đuôi @gmail.com
           const originalEmail = rawEmail;
-
-          // Tự động tạo tài khoản cho sinh viên dựa trên mail có đuôi @gmail.com:
-          // 1. Nếu file Excel có cột email/gmail:
-          //    - Đã có đuôi @gmail.com -> giữ nguyên (ví dụ lethiquan01@gmail.com)
-          //    - Là email trường/dạng khác -> lấy tiền tố ghép @gmail.com (ví dụ an.nv241432@gmail.com)
-          // 2. Nếu không có cột email:
-          //    - Có MSSV -> mssv@gmail.com (ví dụ 20241432@gmail.com)
-          //    - Không có MSSV -> sv{last3}@gmail.com
-          let email = '';
-          if (rawEmail) {
-            const rawLower = rawEmail.toLowerCase();
-            if (rawLower.endsWith('@gmail.com')) {
-              email = rawLower;
-            } else if (rawLower.includes('@')) {
-              const prefix = rawLower.split('@')[0].trim();
-              email = `${prefix}@gmail.com`;
-            } else {
-              email = `${rawLower.trim()}@gmail.com`;
-            }
-          } else if (mssv) {
-            email = `${mssv}@gmail.com`;
-          } else {
-            email = `sv${last3}@gmail.com`;
-          }
 
           const exists = Boolean(DB.users().find(u => 
             (u.email && u.email.toLowerCase() === email) || 
@@ -574,7 +564,7 @@ window.handleImportFile = function(file) {
 
           const projectName = projectKey ? String(r[projectKey] || '').trim() : '';
 
-          // Phân vai trò: Người đầu tiên của nhóm xuất hiện trong danh sách = Nhóm trưởng ('nhomt'), còn lại = Sinh viên ('sinhvien')
+          // Phân vai trò: Người đầu tiên của nhóm có Gmail xuất hiện trong danh sách = Nhóm trưởng ('nhomt'), còn lại = Sinh viên ('sinhvien')
           let role = 'sinhvien';
           if (groupName) {
             if (!seenGroups.has(groupName)) {
@@ -586,15 +576,14 @@ window.handleImportFile = function(file) {
           }
 
           return { name, mssv, email, originalEmail, groupName, projectName, role, exists };
-        })
-        .filter(r => r.name); // bỏ hàng rỗng
+        });
 
       if (importRows.length === 0) {
-        showToast('Không tìm thấy dòng dữ liệu hợp lệ trong file!', 'error');
+        showToast(`Không có dòng nào có email đuôi @gmail.com (Đã bỏ qua ${skippedCount} dòng không phải @gmail.com / mail HUST)!`, 'warning');
         return;
       }
 
-      renderImportPreview();
+      renderImportPreview(skippedCount);
     } catch (err) {
       console.error(err);
       showToast('Lỗi đọc file Excel: ' + err.message, 'error');
@@ -603,7 +592,7 @@ window.handleImportFile = function(file) {
   reader.readAsArrayBuffer(file);
 };
 
-function renderImportPreview() {
+function renderImportPreview(skippedCount = 0) {
   const newCount  = importRows.filter(r => !r.exists).length;
   const dupCount  = importRows.filter(r => r.exists).length;
   const uniqueGroups = new Set(importRows.map(r => r.groupName).filter(Boolean));
@@ -611,7 +600,8 @@ function renderImportPreview() {
 
   // Summary
   document.getElementById('import-summary').innerHTML = `
-    <div class="is-item"><strong>${importRows.length}</strong>Tổng dòng sinh viên</div>
+    <div class="is-item"><strong>${importRows.length}</strong>Tài khoản @gmail.com hợp lệ</div>
+    ${skippedCount > 0 ? `<div class="is-item" style="color:#d97706"><strong>${skippedCount}</strong>Đã bỏ qua (không có @gmail.com / mail HUST)</div>` : ''}
     <div class="is-item" style="color:#15803d"><strong>${newCount}</strong>Tài khoản mới sẽ tạo</div>
     <div class="is-item" style="color:#2563eb"><strong>${uniqueGroups.size}</strong>Nhóm sẽ tạo/phân vào</div>
     <div class="is-item" style="color:#b45309"><strong>${leaderCount}</strong>Nhóm trưởng (người đầu tiên)</div>
