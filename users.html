@@ -144,7 +144,7 @@
             </tr>
           </table>
           <div style="font-size:11px;color:#78350f;margin-top:6px;line-height:1.5">
-            • <strong>Tài khoản:</strong> Email = <code>3 số cuối MSSV@edu.vn</code> (Vd: <code>321@edu.vn</code>) · Mật khẩu: <code>123456</code><br/>
+            • <strong>Tài khoản:</strong> Email tạo với đuôi <code>@gmail.com</code> (Lấy trực tiếp từ cột Gmail trong file nếu có, hoặc tạo tự động theo <code>MSSV@gmail.com</code>) · Mật khẩu mặc định: <code>123456</code><br/>
             • <strong>Phân quyền & Nhóm:</strong> Người xuất hiện <strong>đầu tiên</strong> của mỗi nhóm sẽ là <strong>👑 Nhóm trưởng</strong>, các bạn phía sau là <strong>🎓 Thành viên</strong>. Hệ thống sẽ tự động tạo nhóm và gán đề tài vào đúng lớp học!
           </div>
         </div>
@@ -293,18 +293,19 @@ function render() {
             <th>#</th>
             <th>Họ và tên</th>
             <th>MSSV</th>
-            <th>Email đăng nhập</th>
-            <th>Email gốc</th>
+            <th>Tài khoản (@gmail.com)</th>
             <th>Vai trò</th>
             <th>Lớp học</th>
-            <th>Nhóm dự án</th>
+            <th>Số nhóm</th>
+            <th>Tên đề tài</th>
+            <th>Email gốc</th>
             <th>Mật khẩu</th>
             <th>Thao tác</th>
           </tr>
         </thead>
         <tbody>
           ${users.length === 0 ? `
-            <tr><td colspan="10"><div class="empty"><div class="empty-icon">👤</div><p>Không tìm thấy tài khoản nào</p></div></td></tr>
+            <tr><td colspan="11"><div class="empty"><div class="empty-icon">👤</div><p>Không tìm thấy tài khoản nào</p></div></td></tr>
           ` : users.map((u, idx) => {
             const group = DB.groupOfUser(u.id);
             const uCid = DB.userClassId(u);
@@ -320,7 +321,6 @@ function render() {
               </td>
               <td>${u.mssv ? `<span class="badge badge-gray" style="font-family:monospace">${u.mssv}</span>` : '<span class="text-muted">—</span>'}</td>
               <td class="td-muted" style="font-family:monospace;font-size:12px">${u.email}</td>
-              <td style="font-size:12px;color:var(--text-secondary)">${u.originalEmail || '<span class="text-muted">—</span>'}</td>
               <td>
                 ${u.role === 'giaovien' ? '<span class="badge badge-black">GV</span>' :
                   u.role === 'nhomt' ? '<span class="badge badge-gray font-bold">NT</span>' :
@@ -332,8 +332,12 @@ function render() {
                   : (cls ? `<span class="badge badge-outline">🏫 ${cls.name}</span>` : '<span class="text-xs text-danger">Chưa chọn lớp</span>')}
               </td>
               <td>
-                ${group ? `<span class="chip">${group.name}</span>` : '<span class="text-muted">Chưa có nhóm</span>'}
+                ${group ? `<span class="chip font-bold">${group.name}</span>` : '<span class="text-muted">Chưa có nhóm</span>'}
               </td>
+              <td style="font-size:12px;max-width:200px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis" title="${group?.project || ''}">
+                ${group?.project ? group.project : '<span class="text-muted">—</span>'}
+              </td>
+              <td style="font-size:12px;color:var(--text-secondary)">${u.originalEmail || '<span class="text-muted">—</span>'}</td>
               <td><span class="chip" style="font-family:monospace;letter-spacing:1px">••••••</span></td>
               <td>
                 <div class="flex gap-1">
@@ -523,9 +527,33 @@ window.handleImportFile = function(file) {
           const name = String(r[nameKey] || '').trim();
           const mssv = String(r[mssvKey] || '').trim().replace(/\D/g, ''); // chỉ lấy chữ số
           const last3 = mssv.slice(-3).padStart(3, '0');
-          const originalEmail = emailOrigKey ? String(r[emailOrigKey] || '').trim() : '';
-          // Ưu tiên dùng chính email trường (nếu có trong file Excel) làm email đăng nhập chính
-          const email = (originalEmail || (mssv ? `${mssv}@sis.hust.edu.vn` : `${last3}@edu.vn`)).toLowerCase();
+          const rawEmail = emailOrigKey ? String(r[emailOrigKey] || '').trim() : '';
+          const originalEmail = rawEmail;
+
+          // Tự động tạo tài khoản cho sinh viên dựa trên mail có đuôi @gmail.com:
+          // 1. Nếu file Excel có cột email/gmail:
+          //    - Đã có đuôi @gmail.com -> giữ nguyên (ví dụ lethiquan01@gmail.com)
+          //    - Là email trường/dạng khác -> lấy tiền tố ghép @gmail.com (ví dụ an.nv241432@gmail.com)
+          // 2. Nếu không có cột email:
+          //    - Có MSSV -> mssv@gmail.com (ví dụ 20241432@gmail.com)
+          //    - Không có MSSV -> sv{last3}@gmail.com
+          let email = '';
+          if (rawEmail) {
+            const rawLower = rawEmail.toLowerCase();
+            if (rawLower.endsWith('@gmail.com')) {
+              email = rawLower;
+            } else if (rawLower.includes('@')) {
+              const prefix = rawLower.split('@')[0].trim();
+              email = `${prefix}@gmail.com`;
+            } else {
+              email = `${rawLower.trim()}@gmail.com`;
+            }
+          } else if (mssv) {
+            email = `${mssv}@gmail.com`;
+          } else {
+            email = `sv${last3}@gmail.com`;
+          }
+
           const exists = Boolean(DB.users().find(u => 
             (u.email && u.email.toLowerCase() === email) || 
             (r.mssv && u.mssv && u.mssv === r.mssv)
@@ -743,8 +771,8 @@ function exportAccountsExcel(list, className) {
   if (!window.XLSX) { showToast('Thư viện XLSX chưa sẵn sàng!', 'error'); return; }
 
   const wsData = [
-    ['STT', 'Họ và tên', 'MSSV', 'Email gốc (trường cấp)', 'Email đăng nhập hệ thống', 'Mật khẩu', 'Vai trò', 'Nhóm', 'Tên đề tài', 'Lớp học'],
-    ...list.map((r, i) => [i + 1, r.name, r.mssv || '—', r.originalEmail || '—', r.email, r.password, r.role || 'Sinh viên', r.groupName || '—', r.projectName || '—', r.classId])
+    ['STT', 'Họ và tên', 'MSSV', 'Tài khoản (@gmail.com)', 'Email gốc', 'Vai trò', 'Số nhóm', 'Tên đề tài', 'Lớp học', 'Mật khẩu mặc định'],
+    ...list.map((r, i) => [i + 1, r.name, r.mssv || '—', r.email, r.originalEmail || '—', r.role === 'nhomt' ? 'Nhóm trưởng' : 'Sinh viên', r.groupName || '—', r.projectName || '—', r.classId, r.password || '123456'])
   ];
 
   const ws = XLSX.utils.aoa_to_sheet(wsData);
@@ -790,7 +818,7 @@ window.exportCurrentUsers = function() {
 
   const roleLabel = r => r === 'nhomt' ? 'Nhóm trưởng' : 'Sinh viên';
   const wsData = [
-    ['STT', 'Họ và tên', 'MSSV', 'Email gốc (trường cấp)', 'Email đăng nhập hệ thống', 'Mật khẩu', 'Vai trò', 'Lớp học', 'Nhóm dự án'],
+    ['STT', 'Họ và tên', 'MSSV', 'Tài khoản (@gmail.com)', 'Email gốc', 'Vai trò', 'Lớp học', 'Số nhóm', 'Tên đề tài', 'Mật khẩu'],
     ...users.map((u, i) => {
       const cls = DB.findClass(DB.userClassId(u));
       const grp = DB.groupOfUser(u.id);
@@ -798,19 +826,20 @@ window.exportCurrentUsers = function() {
         i + 1,
         u.name,
         u.mssv || '—',
-        u.originalEmail || '—',
         u.email,
-        u.password || '123456',
+        u.originalEmail || '—',
         roleLabel(u.role),
         cls?.name || '—',
-        grp?.name || 'Chưa có nhóm'
+        grp?.name || 'Chưa có nhóm',
+        grp?.project || '—',
+        u.password || '123456'
       ];
     })
   ];
 
   const ws = XLSX.utils.aoa_to_sheet(wsData);
   ws['!cols'] = [
-    { wch: 5 }, { wch: 25 }, { wch: 14 }, { wch: 28 }, { wch: 24 }, { wch: 12 }, { wch: 15 }, { wch: 22 }, { wch: 18 }
+    { wch: 5 }, { wch: 25 }, { wch: 14 }, { wch: 28 }, { wch: 28 }, { wch: 14 }, { wch: 22 }, { wch: 14 }, { wch: 30 }, { wch: 12 }
   ];
 
   const wb = XLSX.utils.book_new();
