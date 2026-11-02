@@ -409,9 +409,11 @@ window.saveUser = function(e) {
   if (!name || !email) { showToast('Vui lòng nhập đầy đủ thông tin!', 'error'); return; }
   if (role !== 'giaovien' && !classId) { showToast('Vui lòng chọn Lớp học cho sinh viên!', 'error'); return; }
 
-  const exist = DB.findUser(email);
-  if (exist && exist.id !== id) {
-    showToast('Email này đã được sử dụng!', 'error');
+  // Kiểm tra trùng email (chỉ so khớp chính xác với user khác, không dùng fuzzy matching)
+  const normEmail = email.toLowerCase();
+  const exist = DB.users().find(u => u.email && u.email.toLowerCase() === normEmail && u.id !== id);
+  if (exist) {
+    showToast('Email này đã được sử dụng bởi tài khoản khác!', 'error');
     return;
   }
 
@@ -521,9 +523,13 @@ window.handleImportFile = function(file) {
           const name = String(r[nameKey] || '').trim();
           const mssv = String(r[mssvKey] || '').trim().replace(/\D/g, ''); // chỉ lấy chữ số
           const last3 = mssv.slice(-3).padStart(3, '0');
-          const email = `${last3}@edu.vn`;
           const originalEmail = emailOrigKey ? String(r[emailOrigKey] || '').trim() : '';
-          const exists = Boolean(DB.findUser(email));
+          // Ưu tiên dùng chính email trường (nếu có trong file Excel) làm email đăng nhập chính
+          const email = (originalEmail || (mssv ? `${mssv}@sis.hust.edu.vn` : `${last3}@edu.vn`)).toLowerCase();
+          const exists = Boolean(DB.users().find(u => 
+            (u.email && u.email.toLowerCase() === email) || 
+            (r.mssv && u.mssv && u.mssv === r.mssv)
+          ));
 
           // Chuẩn hóa tên nhóm: ví dụ "1" -> "Nhóm 01", "Nhóm 1" -> "Nhóm 01", hoặc giữ nguyên nếu đã có chữ "Nhóm ..."
           let rawGroup = groupKey ? String(r[groupKey] || '').trim() : '';
@@ -617,7 +623,11 @@ window.confirmImport = function() {
 
   // Bước 1: Tạo/Cập nhật tài khoản sinh viên
   importRows.forEach(r => {
-    let existingUser = DB.findUser(r.email);
+    let existingUser = DB.users().find(u => 
+      (u.email && u.email.toLowerCase() === r.email.toLowerCase()) || 
+      (r.originalEmail && u.originalEmail && u.originalEmail.toLowerCase() === r.originalEmail.toLowerCase()) ||
+      (r.mssv && u.mssv && u.mssv === r.mssv)
+    );
     let userId = existingUser ? existingUser.id : null;
 
     if (!existingUser) {
