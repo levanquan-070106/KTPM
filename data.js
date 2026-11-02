@@ -74,10 +74,20 @@ const DB = {
     if (!email) return null;
     const q = email.trim().toLowerCase();
     const users = this.users();
-    let found = users.find(u => u.email.toLowerCase() === q);
+    // 1. So khớp chính xác email hệ thống hoặc email gốc
+    let found = users.find(u => 
+      u.email.toLowerCase() === q || 
+      (u.originalEmail && u.originalEmail.toLowerCase() === q)
+    );
     if (found) return found;
+
+    // 2. So khớp phần username trước dấu @ (cho phép xxx và xxx@edu.vn)
     const userPart = q.split('@')[0];
-    return users.find(u => u.email.toLowerCase().split('@')[0] === userPart);
+    return users.find(u => 
+      u.email.toLowerCase().split('@')[0] === userPart ||
+      (u.originalEmail && u.originalEmail.toLowerCase().split('@')[0] === userPart) ||
+      (u.mssv && (q.includes(u.mssv) || userPart === u.mssv || u.mssv.endsWith(userPart)))
+    );
   },
   findUserById(id) { return this.users().find(u => u.id === id); },
   userClassId(u) {

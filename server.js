@@ -164,17 +164,66 @@ app.post('/api/restore', (req, res) => {
   }
 });
 
-// 2. Auth: Đăng nhập
+// 2. Auth: Đăng nhập thường
 app.post('/api/auth/login', (req, res) => {
   try {
     const { email, password } = req.body;
     if (!email || !password) return res.status(400).json({ success: false, message: 'Vui lòng nhập email và mật khẩu' });
 
     const q = email.trim().toLowerCase();
-    const user = db.prepare('SELECT id, name, email, password, role, class_id as classId FROM users WHERE LOWER(email) = ? OR LOWER(email) = ?').get(q, q.replace('@edu.vn', '@ktpmud.edu'));
+    const user = db.prepare(`
+      SELECT id, name, email, password, role, class_id as classId, mssv, original_email as originalEmail 
+      FROM users 
+      WHERE LOWER(email) = ? OR LOWER(original_email) = ? OR LOWER(email) = ?
+    `).get(q, q, q.replace('@edu.vn', '@ktpmud.edu'));
 
     if (!user || user.password !== password) {
       return res.status(401).json({ success: false, message: 'Email hoặc mật khẩu không đúng!' });
+    }
+
+    res.json({ success: true, user });
+  } catch (err) {
+    res.status(500).json({ success: false, message: err.message });
+  }
+});
+
+// 2b. Auth: Đăng nhập Google OAuth (Xác thực bằng Google email)
+app.post('/api/auth/google', (req, res) => {
+  try {
+    const { email, name } = req.body;
+    if (!email) return res.status(400).json({ success: false, message: 'Thiếu thông tin email từ Google' });
+
+    const q = email.trim().toLowerCase();
+    // Tìm theo email gốc (original_email) hoặc email hệ thống
+    let user = db.prepare(`
+      SELECT id, name, email, password, role, class_id as classId, mssv, original_email as originalEmail 
+      FROM users 
+      WHERE LOWER(original_email) = ? OR LOWER(email) = ?
+    `).get(q, q);
+
+    // Nếu chưa thấy, thử tìm theo username tiền tố hoặc MSSV
+    if (!user) {
+      const userPart = q.split('@')[0];
+      user = db.prepare(`
+        SELECT id, name, email, password, role, class_id as classId, mssv, original_email as originalEmail 
+        FROM users 
+        WHERE LOWER(email) LIKE ? OR (mssv IS NOT NULL AND ? LIKE '%' || mssv || '%')
+      `).get(`${userPart}@%`, q);
+    }
+
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        message: `Email "${email}" chưa được đăng ký trong danh sách lớp học nào. Vui lòng liên hệ Giảng viên để được thêm vào danh sách lớp!`
+      });
+    }
+
+    // Nếu có email trường đăng nhập thành công, tự động cập nhật original_email nếu chưa có
+    if (!user.originalEmail) {
+      try {
+        db.prepare('UPDATE users SET original_email = ? WHERE id = ?').run(email, user.id);
+        user.originalEmail = email;
+      } catch {}
     }
 
     res.json({ success: true, user });
