@@ -310,17 +310,48 @@ function scoreClass(s) {
   return 'score-f';
 }
 
-const SEMESTER_START = new Date('2026-08-17');
-function currentWeek() {
-  const diff = Math.floor((new Date() - SEMESTER_START) / (7*24*3600*1000)) + 1;
-  return Math.max(1, Math.min(diff, 16));
+// Tính mốc thời gian bắt đầu của lớp: ưu tiên semStart (ngày bắt đầu học kỳ) hoặc createdAt (ngày tạo lớp)
+function classStartDate(classOrId) {
+  let cls = null;
+  if (!classOrId) {
+    const curCid = (typeof DB !== 'undefined') ? DB.curClassId() : null;
+    cls = curCid ? DB.findClass(curCid) : null;
+  } else if (typeof classOrId === 'string') {
+    cls = DB.findClass(classOrId);
+  } else if (typeof classOrId === 'object') {
+    cls = classOrId;
+  }
+  const dateStr = cls?.semStart || cls?.createdAt;
+  if (dateStr) {
+    const d = new Date(dateStr);
+    if (!isNaN(d.getTime())) return d;
+  }
+  return new Date('2026-08-17');
 }
-function weekDeadline(w) {
-  const d = new Date(SEMESTER_START.getTime() + (w*7 - 2)*24*3600*1000);
-  d.setHours(23,59,59); return d;
+
+// Tuần hiện tại: tính từ ngày tạo/bắt đầu lớp, mỗi tuần 7 ngày
+function currentWeek(classOrId) {
+  const start = classStartDate(classOrId);
+  const diffMs = new Date() - start;
+  // Nếu chưa đến ngày bắt đầu thì tính là tuần 1
+  if (diffMs < 0) return 1;
+  const diffWeeks = Math.floor(diffMs / (7 * 24 * 3600 * 1000)) + 1;
+  return Math.max(1, Math.min(diffWeeks, 16));
 }
-function isLate(submittedAt, w) {
-  return new Date(submittedAt) > weekDeadline(w);
+
+// Hạn nộp báo cáo: Tuần 1 là 7 ngày sau ngày tạo/bắt đầu lớp (lúc 23:59:59 của ngày thứ 7)
+// Tuần w: start + w * 7 ngày (lúc 23:59:59)
+function weekDeadline(w, classOrId) {
+  const start = classStartDate(classOrId);
+  // Tuần 1 = start + 7 ngày; Tuần w = start + w * 7 ngày
+  const d = new Date(start.getTime() + (w * 7) * 24 * 3600 * 1000);
+  d.setHours(23, 59, 59, 999);
+  return d;
+}
+
+function isLate(submittedAt, w, classOrId) {
+  if (!submittedAt) return false;
+  return new Date(submittedAt) > weekDeadline(w, classOrId);
 }
 
 // Auth guard

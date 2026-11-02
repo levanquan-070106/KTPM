@@ -26,7 +26,7 @@ function renderGV(el) {
   const myClasses = DB.classes().filter(c => c.lecturerId === user.id);
   const groups = cid ? DB.groupsByClass(cid) : DB.groups().filter(g => myClasses.some(c=>c.id===g.classId));
   const reports = DB.reports();
-  const week = currentWeek();
+  const week = currentWeek(cid);
 
   const totalSV = groups.reduce((s,g)=>s+g.members.length,0);
   const pending = reports.filter(r=>groups.some(g=>g.id===r.groupId)&&r.status==='submitted').length;
@@ -129,7 +129,7 @@ function renderSV(el) {
   const cls = DB.findClass(group.classId);
   const reports = DB.reportsByGroup(group.id);
   const tasks = DB.tasksByGroup(group.id);
-  const week = currentWeek();
+  const week = currentWeek(group.classId);
   const grade = DB.gradeByGroup(group.id);
   const graded = reports.filter(r=>r.status==='graded');
   const avg = graded.length > 0 ? (graded.reduce((s,r)=>s+r.grade,0)/graded.length).toFixed(1) : null;

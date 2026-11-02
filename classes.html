@@ -39,7 +39,7 @@
         </div>
       </div>
       <div class="form-group">
-        <label class="form-label">Ngày bắt đầu học kỳ</label>
+        <label class="form-label">Ngày tạo / Bắt đầu lớp học <span class="form-hint">(Tuần 1 sẽ tính là 7 ngày sau mốc này)</span></label>
         <input id="cls-start" class="form-control" type="date"/>
       </div>
       <div class="form-group" style="display:flex;align-items:center;gap:10px">
@@ -144,7 +144,8 @@ window.openClassModal = function(id='') {
   document.getElementById('cls-code').value = cls?.code || '';
   document.getElementById('cls-sem').value = cls?.semester || '';
   document.getElementById('cls-weeks').value = cls?.totalWeeks || 16;
-  document.getElementById('cls-start').value = cls?.semStart || '';
+  const defaultStart = cls?.semStart || (cls?.createdAt ? cls.createdAt.split('T')[0] : new Date().toISOString().split('T')[0]);
+  document.getElementById('cls-start').value = defaultStart;
   document.getElementById('cls-active').checked = cls ? cls.active : true;
   openModal('m-class');
 };
@@ -155,10 +156,11 @@ window.saveClass = function(e) {
   const name = document.getElementById('cls-name').value.trim();
   const semester = document.getElementById('cls-sem').value.trim();
   if (!name || !semester) { showToast('Vui lòng nhập tên lớp và học kỳ!', 'error'); return; }
+  const semStartVal = document.getElementById('cls-start').value || new Date().toISOString().split('T')[0];
   const obj = {
     name, code: document.getElementById('cls-code').value.trim(),
     semester, totalWeeks: parseInt(document.getElementById('cls-weeks').value)||16,
-    semStart: document.getElementById('cls-start').value,
+    semStart: semStartVal,
     active: document.getElementById('cls-active').checked,
     lecturerId: user.id,
   };

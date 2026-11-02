@@ -1,4 +1,4 @@
-﻿<!DOCTYPE html>
+<!DOCTYPE html>
 <html lang="vi">
 <head>
   <meta charset="UTF-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/>
@@ -111,7 +111,7 @@ function renderGV(el) {
   const myClasses = DB.classes().filter(c=>c.lecturerId===user.id);
   const groups = cid ? DB.groupsByClass(cid) : DB.groups().filter(g=>myClasses.some(c=>c.id===g.classId));
   let reports = DB.reports().filter(r=>groups.some(g=>g.id===r.groupId));
-  const week = currentWeek();
+  const week = currentWeek(cid);
 
   let fStatus='all', fGroup='all', fWeek='all';
   let search='';
@@ -207,7 +207,7 @@ function renderGroup(el) {
   if (!group) { el.innerHTML='<div class="empty"><div class="empty-icon">👥</div><h3>Chưa có nhóm</h3></div>'; return; }
   const isNT = user.role === 'nhomt';
   const reports = DB.reportsByGroup(group.id);
-  const week = currentWeek();
+  const week = currentWeek(group.classId);
   const graded = reports.filter(r=>r.status==='graded');
   const avg = graded.length>0?(graded.reduce((s,r)=>s+r.grade,0)/graded.length).toFixed(1):null;
 
@@ -222,7 +222,7 @@ function renderGroup(el) {
     <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:10px;margin-bottom:24px">
       ${Array.from({length:16},(_,i)=>{
         const w=i+1, r=reports.find(x=>x.week===w);
-        const deadline = weekDeadline(w);
+        const deadline = weekDeadline(w, group.classId);
         const isOver = new Date() > deadline && w <= week;
         let statusBadge='', borderStyle='';
         if(w>week) { statusBadge='<span class="badge badge-gray">Chưa đến</span>'; }
@@ -440,7 +440,7 @@ window.viewReport = function(rid) {
       <div class="flex gap-2 items-center">
         <span class="badge badge-gray">Tuần ${r.week}</span>
         ${r.status==='graded'?'<span class="badge badge-success">✅ Đã chấm</span>':'<span class="badge badge-warning">⏳ Chờ chấm</span>'}
-        ${r.submittedAt&&isLate(r.submittedAt,r.week)?'<span class="badge badge-danger">Nộp muộn</span>':''}
+        ${r.submittedAt&&isLate(r.submittedAt,r.week,g?.classId)?'<span class="badge badge-danger">Nộp muộn</span>':''}
       </div>
       <span class="text-xs text-muted">Nộp bởi ${sub?.name} · ${fmtDateTime(r.submittedAt)}</span>
     </div>

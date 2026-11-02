@@ -168,7 +168,8 @@ function render() {
           const submitted = gReps.filter(r => r.status !== 'draft').length;
           const pending = gReps.filter(r => r.status === 'submitted').length;
           const grade = DB.gradeByGroup(g.id);
-          const prog = Math.min(100, Math.round(submitted / week * 100));
+          const gWeek = currentWeek(g.classId);
+          const prog = Math.min(100, Math.round(submitted / gWeek * 100));
           const cls = DB.findClass(g.classId);
 
           return `<div class="card">

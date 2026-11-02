@@ -161,7 +161,7 @@ function render() {
   const members = group.members.map(id => DB.findUserById(id)).filter(Boolean);
   const reports = DB.reportsByGroup(group.id);
   const tasks = DB.tasksByGroup(group.id);
-  const week = currentWeek();
+  const week = currentWeek(group.classId);
   const isNT = user.role === 'nhomt' || group.leaderId === user.id;
 
   const submittedReports = reports.filter(r => r.status !== 'draft').length;
