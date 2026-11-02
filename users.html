@@ -100,7 +100,7 @@
         <div class="form-group">
           <label class="form-label" style="margin-bottom:8px">
             📄 Chọn file Excel
-            <span class="form-hint">(.xlsx, .xls – cột <strong>Họ và tên</strong> + cột <strong>MSSV</strong>)</span>
+            <span class="form-hint">(.xlsx, .xls – gồm: <strong>Họ và tên</strong>, <strong>MSSV</strong>, <strong>Nhóm/STT nhóm</strong>, <strong>Tên đề tài</strong>)</span>
           </label>
           <div class="drop-zone-xl" id="import-dropzone" onclick="document.getElementById('import-file').click()">
             <input type="file" id="import-file" accept=".xlsx,.xls" onchange="handleImportFile(this.files[0])"/>
@@ -112,23 +112,30 @@
 
         <!-- Hướng dẫn định dạng file -->
         <div class="card card-sm" style="background:#fffbeb;border-color:#fcd34d;margin-top:12px">
-          <div style="font-weight:600;font-size:12px;margin-bottom:6px;color:#92400e">📋 Định dạng file Excel yêu cầu:</div>
+          <div style="font-weight:600;font-size:12px;margin-bottom:6px;color:#92400e">📋 Định dạng file Excel yêu cầu (có nhóm & đề tài):</div>
           <table style="font-size:11px;width:100%;border-collapse:collapse">
             <tr style="background:#fef3c7">
               <th style="padding:4px 8px;border:1px solid #fcd34d;text-align:left">Họ và tên</th>
               <th style="padding:4px 8px;border:1px solid #fcd34d;text-align:left">MSSV</th>
+              <th style="padding:4px 8px;border:1px solid #fcd34d;text-align:left">Nhóm</th>
+              <th style="padding:4px 8px;border:1px solid #fcd34d;text-align:left">Tên đề tài</th>
             </tr>
             <tr>
               <td style="padding:4px 8px;border:1px solid #fcd34d">Nguyễn Văn An</td>
               <td style="padding:4px 8px;border:1px solid #fcd34d">202414321</td>
+              <td style="padding:4px 8px;border:1px solid #fcd34d">Nhóm 01 (hoặc 1)</td>
+              <td style="padding:4px 8px;border:1px solid #fcd34d">Web quản lý tiến độ</td>
             </tr>
             <tr>
               <td style="padding:4px 8px;border:1px solid #fcd34d">Trần Thị Bình</td>
               <td style="padding:4px 8px;border:1px solid #fcd34d">202414456</td>
+              <td style="padding:4px 8px;border:1px solid #fcd34d">Nhóm 01 (hoặc 1)</td>
+              <td style="padding:4px 8px;border:1px solid #fcd34d">Web quản lý tiến độ</td>
             </tr>
           </table>
-          <div style="font-size:11px;color:#78350f;margin-top:6px">
-            → Email tự tạo: <code>321@edu.vn</code>, <code>456@edu.vn</code> (3 số cuối MSSV) · Mật khẩu: <code>123456</code>
+          <div style="font-size:11px;color:#78350f;margin-top:6px;line-height:1.5">
+            • <strong>Tài khoản:</strong> Email = <code>3 số cuối MSSV@edu.vn</code> (Vd: <code>321@edu.vn</code>) · Mật khẩu: <code>123456</code><br/>
+            • <strong>Phân quyền & Nhóm:</strong> Người xuất hiện <strong>đầu tiên</strong> của mỗi nhóm sẽ là <strong>👑 Nhóm trưởng</strong>, các bạn phía sau là <strong>🎓 Thành viên</strong>. Hệ thống sẽ tự động tạo nhóm và gán đề tài vào đúng lớp học!
           </div>
         </div>
       </div>
@@ -144,6 +151,9 @@
                 <th>Họ và tên</th>
                 <th>MSSV</th>
                 <th>Email sẽ tạo</th>
+                <th>Nhóm</th>
+                <th>Vai trò</th>
+                <th>Tên đề tài</th>
                 <th>Trạng thái</th>
               </tr>
             </thead>
@@ -152,7 +162,7 @@
         </div>
         <div style="margin-top:12px;font-size:12px;color:#6b7280">
           <span class="badge-new">Mới</span> = tài khoản mới &nbsp;|&nbsp;
-          <span class="badge-dup">Trùng</span> = email đã tồn tại, sẽ bỏ qua
+          <span class="badge-dup">Đã có</span> = tài khoản đã tồn tại (vẫn được cập nhật vào nhóm)
         </div>
       </div>
     </div>
@@ -475,11 +485,16 @@ window.handleImportFile = function(file) {
         return;
       }
 
-      // Tìm cột Họ và tên + MSSV (linh hoạt với tên cột khác nhau)
+      // Tìm cột Họ và tên, MSSV, Nhóm/STT Nhóm, Tên đề tài
       const firstRow = raw[0];
       const keys = Object.keys(firstRow);
-      const nameKey = keys.find(k => /h[oọ]\s*(v[aà])\s*t[eê]n|t[eê]n/i.test(k)) || keys[0];
+      const nameKey = keys.find(k => /h[oọ]\s*(v[aà])\s*t[eê]n|h[oọ]\s*t[eê]n|t[eê]n\s*sv|t[eê]n/i.test(k)) || keys[0];
       const mssvKey = keys.find(k => /mssv|m[aã]\s*s[oố]\s*sv|student\s*id|s[oố]\s*hi[eệ]u/i.test(k)) || keys[1];
+      const groupKey = keys.find(k => /nh[oó]m|stt\s*nh[oó]m|team|group/i.test(k));
+      const projectKey = keys.find(k => /[đd][eề]\s*t[aà]i|project|topic|t[eê]n\s*[đd][eề]|n[oộ]i\s*dung/i.test(k));
+
+      // Tập hợp để theo dõi người đầu tiên trong từng nhóm xuất hiện trong danh sách
+      const seenGroups = new Set();
 
       importRows = raw
         .filter(r => String(r[nameKey] || '').trim())
@@ -489,7 +504,34 @@ window.handleImportFile = function(file) {
           const last3 = mssv.slice(-3).padStart(3, '0');
           const email = `${last3}@edu.vn`;
           const exists = Boolean(DB.findUser(email));
-          return { name, mssv, email, exists };
+
+          // Chuẩn hóa tên nhóm: ví dụ "1" -> "Nhóm 01", "Nhóm 1" -> "Nhóm 01", hoặc giữ nguyên nếu đã có chữ "Nhóm ..."
+          let rawGroup = groupKey ? String(r[groupKey] || '').trim() : '';
+          let groupName = '';
+          if (rawGroup) {
+            const numMatch = rawGroup.match(/\d+/);
+            if (numMatch) {
+              const numPadded = numMatch[0].padStart(2, '0');
+              groupName = `Nhóm ${numPadded}`;
+            } else {
+              groupName = rawGroup;
+            }
+          }
+
+          const projectName = projectKey ? String(r[projectKey] || '').trim() : '';
+
+          // Phân vai trò: Người đầu tiên của nhóm xuất hiện trong danh sách = Nhóm trưởng ('nhomt'), còn lại = Sinh viên ('sinhvien')
+          let role = 'sinhvien';
+          if (groupName) {
+            if (!seenGroups.has(groupName)) {
+              seenGroups.add(groupName);
+              role = 'nhomt'; // Người đầu tiên của nhóm là nhóm trưởng
+            } else {
+              role = 'sinhvien';
+            }
+          }
+
+          return { name, mssv, email, groupName, projectName, role, exists };
         })
         .filter(r => r.name); // bỏ hàng rỗng
 
@@ -510,12 +552,16 @@ window.handleImportFile = function(file) {
 function renderImportPreview() {
   const newCount  = importRows.filter(r => !r.exists).length;
   const dupCount  = importRows.filter(r => r.exists).length;
+  const uniqueGroups = new Set(importRows.map(r => r.groupName).filter(Boolean));
+  const leaderCount = importRows.filter(r => r.role === 'nhomt').length;
 
   // Summary
   document.getElementById('import-summary').innerHTML = `
-    <div class="is-item"><strong>${importRows.length}</strong>Tổng dòng trong file</div>
-    <div class="is-item" style="color:#15803d"><strong>${newCount}</strong>Tài khoản sẽ được tạo</div>
-    <div class="is-item" style="color:#dc2626"><strong>${dupCount}</strong>Email đã tồn tại (bỏ qua)</div>
+    <div class="is-item"><strong>${importRows.length}</strong>Tổng dòng sinh viên</div>
+    <div class="is-item" style="color:#15803d"><strong>${newCount}</strong>Tài khoản mới sẽ tạo</div>
+    <div class="is-item" style="color:#2563eb"><strong>${uniqueGroups.size}</strong>Nhóm sẽ tạo/phân vào</div>
+    <div class="is-item" style="color:#b45309"><strong>${leaderCount}</strong>Nhóm trưởng (người đầu tiên)</div>
+    ${dupCount > 0 ? `<div class="is-item" style="color:#dc2626"><strong>${dupCount}</strong>Tài khoản đã có sẵn</div>` : ''}
   `;
 
   // Table
@@ -525,46 +571,135 @@ function renderImportPreview() {
       <td><strong>${r.name}</strong></td>
       <td style="font-family:monospace">${r.mssv || '—'}</td>
       <td style="font-family:monospace">${r.email}</td>
+      <td>${r.groupName ? `<span class="chip font-bold">${r.groupName}</span>` : '<span class="text-muted">—</span>'}</td>
+      <td>${r.role === 'nhomt'
+        ? '<span class="badge badge-black">👑 Nhóm trưởng</span>'
+        : '<span class="badge badge-outline">🎓 Thành viên</span>'}</td>
+      <td style="font-size:11px;max-width:180px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis" title="${r.projectName}">${r.projectName || '—'}</td>
       <td>${r.exists
-        ? '<span class="badge-dup">Trùng – bỏ qua</span>'
-        : '<span class="badge-new">Mới – sẽ tạo</span>'}</td>
+        ? '<span class="badge-dup">Đã có</span>'
+        : '<span class="badge-new">Mới</span>'}</td>
     </tr>
   `).join('');
 
   document.getElementById('import-step1').style.display = 'none';
   document.getElementById('import-step2').style.display = '';
   document.getElementById('import-btn-back').style.display = '';
-  document.getElementById('import-btn-confirm').style.display = newCount > 0 ? '' : 'none';
-  if (newCount === 0) showToast('Tất cả email đã tồn tại, không có tài khoản nào cần tạo thêm.', 'warning');
+  document.getElementById('import-btn-confirm').style.display = importRows.length > 0 ? '' : 'none';
 }
 
 window.confirmImport = function() {
   const classId = document.getElementById('import-class').value;
   if (!classId) { showToast('Vui lòng chọn lớp học!', 'error'); return; }
 
-  const toCreate = importRows.filter(r => !r.exists);
-  if (toCreate.length === 0) { showToast('Không có tài khoản mới nào để tạo!', 'warning'); return; }
-
   const cls = DB.findClass(classId);
   const createdList = [];
 
-  toCreate.forEach(r => {
-    const newId = uid();
-    DB.addUser({
-      id:       newId,
-      name:     r.name,
-      email:    r.email,
+  // Bước 1: Tạo/Cập nhật tài khoản sinh viên
+  importRows.forEach(r => {
+    let existingUser = DB.findUser(r.email);
+    let userId = existingUser ? existingUser.id : null;
+
+    if (!existingUser) {
+      userId = uid();
+      DB.addUser({
+        id:       userId,
+        name:     r.name,
+        email:    r.email,
+        password: '123456',
+        role:     r.role,
+        classId:  classId
+      });
+      r.finalUserId = userId;
+    } else {
+      // Nếu user đã tồn tại, cập nhật vai trò (nếu là nhóm trưởng) và classId
+      r.finalUserId = existingUser.id;
+      DB.updateUser({
+        id: existingUser.id,
+        role: r.role,
+        classId: classId
+      });
+    }
+
+    createdList.push({
+      name: r.name,
+      mssv: r.mssv,
+      email: r.email,
       password: '123456',
-      role:     'sinhvien',
-      classId:  classId
+      role: r.role === 'nhomt' ? 'Nhóm trưởng' : 'Sinh viên',
+      groupName: r.groupName || 'Chưa phân nhóm',
+      projectName: r.projectName || '—',
+      classId: cls?.name || classId
     });
-    createdList.push({ name: r.name, mssv: r.mssv, email: r.email, password: '123456', classId: cls?.name || classId });
   });
 
-  // Xuất file Excel danh sách tài khoản vừa tạo
+  // Bước 2: Tự động gom nhóm & tạo nhóm dự án trong lớp học đã chọn
+  const groupsMap = {}; // groupName -> { members: [userId], leaderId: userId, project: '' }
+
+  importRows.forEach(r => {
+    if (!r.groupName) return;
+    if (!groupsMap[r.groupName]) {
+      groupsMap[r.groupName] = {
+        name: r.groupName,
+        project: r.projectName || '',
+        leaderId: r.role === 'nhomt' ? r.finalUserId : null,
+        members: []
+      };
+    }
+    if (r.projectName && !groupsMap[r.groupName].project) {
+      groupsMap[r.groupName].project = r.projectName;
+    }
+    if (r.role === 'nhomt' && !groupsMap[r.groupName].leaderId) {
+      groupsMap[r.groupName].leaderId = r.finalUserId;
+    }
+    if (!groupsMap[r.groupName].members.includes(r.finalUserId)) {
+      groupsMap[r.groupName].members.push(r.finalUserId);
+    }
+  });
+
+  // Lưu hoặc cập nhật các nhóm vào Database
+  const existingClassGroups = DB.groupsByClass(classId);
+  let groupsCreatedCount = 0;
+
+  Object.values(groupsMap).forEach(gInfo => {
+    // Nếu leaderId chưa có (do không có ai role 'nhomt'), chọn người đầu tiên làm nhóm trưởng
+    if (!gInfo.leaderId && gInfo.members.length > 0) {
+      gInfo.leaderId = gInfo.members[0];
+      DB.updateUser({ id: gInfo.leaderId, role: 'nhomt' });
+    }
+
+    const existGrp = existingClassGroups.find(eg => eg.name.toLowerCase() === gInfo.name.toLowerCase());
+    if (existGrp) {
+      // Cập nhật nhóm đã có: gộp thành viên, cập nhật đề tài và nhóm trưởng
+      const mergedMembers = Array.from(new Set([...existGrp.members, ...gInfo.members]));
+      DB.updateGroup({
+        id: existGrp.id,
+        members: mergedMembers,
+        leaderId: gInfo.leaderId || existGrp.leaderId,
+        project: gInfo.project || existGrp.project
+      });
+    } else {
+      // Tạo mới nhóm
+      const newGid = uid();
+      DB.addGroup({
+        id: newGid,
+        classId: classId,
+        name: gInfo.name,
+        project: gInfo.project || 'Đề tài KTPMUD',
+        tech: '',
+        leaderId: gInfo.leaderId,
+        description: `Nhóm được tự động tạo từ danh sách Excel lớp ${cls?.name || ''}`,
+        createdAt: new Date().toISOString(),
+        members: gInfo.members
+      });
+      groupsCreatedCount++;
+    }
+  });
+
+  // Xuất file Excel danh sách tài khoản vừa tạo & phân nhóm
   exportAccountsExcel(createdList, cls?.name || 'DanhSach');
 
-  showToast(`✅ Đã tạo ${createdList.length} tài khoản và xuất file Excel!`, 'success');
+  showToast(`✅ Đã thêm ${importRows.length} sinh viên, tạo/gán ${Object.keys(groupsMap).length} nhóm và xuất file Excel!`, 'success');
   closeModal('m-import');
   render();
 };
@@ -573,8 +708,8 @@ function exportAccountsExcel(list, className) {
   if (!window.XLSX) { showToast('Thư viện XLSX chưa sẵn sàng!', 'error'); return; }
 
   const wsData = [
-    ['STT', 'Họ và tên', 'MSSV', 'Email đăng nhập', 'Mật khẩu', 'Lớp học', 'Vai trò'],
-    ...list.map((r, i) => [i + 1, r.name, r.mssv, r.email, r.password, r.classId, 'Sinh viên'])
+    ['STT', 'Họ và tên', 'MSSV', 'Email đăng nhập', 'Mật khẩu', 'Vai trò', 'Nhóm', 'Tên đề tài', 'Lớp học'],
+    ...list.map((r, i) => [i + 1, r.name, r.mssv, r.email, r.password, r.role || 'Sinh viên', r.groupName || '—', r.projectName || '—', r.classId])
   ];
 
   const ws = XLSX.utils.aoa_to_sheet(wsData);
@@ -586,16 +721,18 @@ function exportAccountsExcel(list, className) {
     { wch: 14 }, // MSSV
     { wch: 22 }, // Email
     { wch: 12 }, // Mật khẩu
+    { wch: 15 }, // Vai trò
+    { wch: 14 }, // Nhóm
+    { wch: 30 }, // Tên đề tài
     { wch: 22 }, // Lớp học
-    { wch: 12 }, // Vai trò
   ];
 
   const wb = XLSX.utils.book_new();
-  XLSX.utils.book_append_sheet(wb, ws, 'Tài khoản');
+  XLSX.utils.book_append_sheet(wb, ws, 'Tài khoản & Nhóm');
 
   const now = new Date();
   const dateStr = `${now.getFullYear()}${String(now.getMonth()+1).padStart(2,'0')}${String(now.getDate()).padStart(2,'0')}`;
-  const fileName = `TaiKhoan_${className.replace(/[^a-zA-Z0-9]/g,'_')}_${dateStr}.xlsx`;
+  const fileName = `TaiKhoan_Nhom_${className.replace(/[^a-zA-Z0-9]/g,'_')}_${dateStr}.xlsx`;
 
   XLSX.writeFile(wb, fileName);
 }
