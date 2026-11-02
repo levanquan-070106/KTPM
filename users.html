@@ -208,6 +208,7 @@ function render() {
         <p class="page-desc">${totalAll} tài khoản trong hệ thống · Phân theo từng lớp học</p>
       </div>
       <div class="flex gap-2">
+        <button class="btn btn-secondary" onclick="exportCurrentUsers()">📤 Xuất Excel</button>
         <button class="btn btn-secondary" onclick="openImportModal()">📥 Import từ Excel</button>
         <button class="btn btn-primary" onclick="openUserModal()">➕ Thêm tài khoản</button>
       </div>
@@ -544,7 +545,9 @@ window.confirmImport = function() {
   const toCreate = importRows.filter(r => !r.exists);
   if (toCreate.length === 0) { showToast('Không có tài khoản mới nào để tạo!', 'warning'); return; }
 
-  let created = 0;
+  const cls = DB.findClass(classId);
+  const createdList = [];
+
   toCreate.forEach(r => {
     const newId = uid();
     DB.addUser({
@@ -555,12 +558,85 @@ window.confirmImport = function() {
       role:     'sinhvien',
       classId:  classId
     });
-    created++;
+    createdList.push({ name: r.name, mssv: r.mssv, email: r.email, password: '123456', classId: cls?.name || classId });
   });
 
-  showToast(`✅ Đã tạo thành công ${created} tài khoản sinh viên vào lớp!`, 'success');
+  // Xuất file Excel danh sách tài khoản vừa tạo
+  exportAccountsExcel(createdList, cls?.name || 'DanhSach');
+
+  showToast(`✅ Đã tạo ${createdList.length} tài khoản và xuất file Excel!`, 'success');
   closeModal('m-import');
   render();
+};
+
+function exportAccountsExcel(list, className) {
+  if (!window.XLSX) { showToast('Thư viện XLSX chưa sẵn sàng!', 'error'); return; }
+
+  const wsData = [
+    ['STT', 'Họ và tên', 'MSSV', 'Email đăng nhập', 'Mật khẩu', 'Lớp học', 'Vai trò'],
+    ...list.map((r, i) => [i + 1, r.name, r.mssv, r.email, r.password, r.classId, 'Sinh viên'])
+  ];
+
+  const ws = XLSX.utils.aoa_to_sheet(wsData);
+
+  // Định dạng độ rộng cột
+  ws['!cols'] = [
+    { wch: 5 },  // STT
+    { wch: 25 }, // Họ và tên
+    { wch: 14 }, // MSSV
+    { wch: 22 }, // Email
+    { wch: 12 }, // Mật khẩu
+    { wch: 22 }, // Lớp học
+    { wch: 12 }, // Vai trò
+  ];
+
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, 'Tài khoản');
+
+  const now = new Date();
+  const dateStr = `${now.getFullYear()}${String(now.getMonth()+1).padStart(2,'0')}${String(now.getDate()).padStart(2,'0')}`;
+  const fileName = `TaiKhoan_${className.replace(/[^a-zA-Z0-9]/g,'_')}_${dateStr}.xlsx`;
+
+  XLSX.writeFile(wb, fileName);
+}
+
+// Xuất danh sách tài khoản đang hiển thị (theo bộ lọc lớp hiện tại)
+window.exportCurrentUsers = function() {
+  if (!window.XLSX) { showToast('Thư viện XLSX chưa sẵn sàng!', 'error'); return; }
+
+  let users = DB.users().filter(u => u.role !== 'giaovien');
+  let labelClass = 'TatCaLop';
+
+  if (filterClassId !== 'all') {
+    users = users.filter(u => DB.userClassId(u) === filterClassId);
+    const cls = DB.findClass(filterClassId);
+    labelClass = cls?.name || filterClassId;
+  }
+
+  if (users.length === 0) { showToast('Không có sinh viên nào để xuất!', 'warning'); return; }
+
+  const roleLabel = r => r === 'nhomt' ? 'Nhóm trưởng' : 'Sinh viên';
+  const wsData = [
+    ['STT', 'Họ và tên', 'Email đăng nhập', 'Mật khẩu', 'Vai trò', 'Lớp học', 'Nhóm dự án'],
+    ...users.map((u, i) => {
+      const cls = DB.findClass(DB.userClassId(u));
+      const grp = DB.groupOfUser(u.id);
+      return [i + 1, u.name, u.email, u.password || '123456', roleLabel(u.role), cls?.name || '—', grp?.name || 'Chưa có nhóm'];
+    })
+  ];
+
+  const ws = XLSX.utils.aoa_to_sheet(wsData);
+  ws['!cols'] = [
+    { wch: 5 }, { wch: 25 }, { wch: 22 }, { wch: 12 }, { wch: 15 }, { wch: 22 }, { wch: 18 }
+  ];
+
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, 'Danh sách');
+
+  const now = new Date();
+  const dateStr = `${now.getFullYear()}${String(now.getMonth()+1).padStart(2,'0')}${String(now.getDate()).padStart(2,'0')}`;
+  XLSX.writeFile(wb, `DanhSachTK_${labelClass.replace(/[^a-zA-Z0-9]/g,'_')}_${dateStr}.xlsx`);
+  showToast(`✅ Đã xuất ${users.length} tài khoản ra file Excel!`, 'success');
 };
 
 // Drag-and-drop cho import dropzone
