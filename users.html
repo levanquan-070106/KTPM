@@ -515,9 +515,64 @@ window.handleImportFile = function(file) {
       const keys = Object.keys(firstRow);
       const nameKey = keys.find(k => /h[oọ]\s*(v[aà])\s*t[eê]n|h[oọ]\s*t[eê]n|t[eê]n\s*sv|t[eê]n/i.test(k)) || keys[0];
       const mssvKey = keys.find(k => /mssv|m[aã]\s*s[oố]\s*sv|student\s*id|s[oố]\s*hi[eệ]u/i.test(k)) || keys[1];
-      const emailOrigKey = keys.find(k => /gmail|email|mail|t[aà]i\s*kho[aả]n/i.test(k) && k !== mssvKey && k !== nameKey);
       const groupKey = keys.find(k => /nh[oó]m|stt\s*nh[oó]m|team|group/i.test(k));
-      const projectKey = keys.find(k => /[đd][eề]\s*t[aà]i|project|topic|t[eê]n\s*[đd][eề]|n[oộ]i\s*dung/i.test(k));
+      const projectKey = keys.find(k => /[đd][eề]\s*t[aà]i|project|topic|t[eê]n\s*[đd][eề]|n[oộ]i\s*dung|s[aả]n\s*ph[aẩ]m/i.test(k));
+
+      // 1. ƯU TIÊN TÌM CỘT CÓ CHỮ 'GMAIL' CHÍNH XÁC (Ví dụ cột 'Gmail' ở Col AC)
+      // Tránh lấy nhầm cột email trường (Email SV / Email)
+      let gmailKey = keys.find(k => /^gmail$/i.test(k.trim()));
+      if (!gmailKey) {
+        gmailKey = keys.find(k => /gmail/i.test(k) && k !== mssvKey && k !== nameKey);
+      }
+      if (!gmailKey) {
+        gmailKey = keys.find(k => /email|mail|t[aà]i\s*kho[aả]n/i.test(k) && k !== mssvKey && k !== nameKey);
+      }
+
+      // Hàm tìm Gmail cho từng dòng: Ưu tiên cột Gmail, quét thêm các cột khác nếu có ô chứa @gmail.com
+      function extractRowGmail(r) {
+        if (gmailKey && r[gmailKey]) {
+          let val = String(r[gmailKey]).trim().toLowerCase();
+          val = val.replace(/@gmai\.com$/i, '@gmail.com'); // sửa lỗi chính tả gõ thiếu chữ l
+          if (val.endsWith('@gmail.com')) return val;
+        }
+        // Quét tất cả các cột của dòng đó để không bỏ sót ô nào có chứa @gmail.com
+        for (const k of Object.keys(r)) {
+          if (k === nameKey || k === mssvKey) continue;
+          let val = String(r[k] || '').trim().toLowerCase();
+          val = val.replace(/@gmai\.com$/i, '@gmail.com');
+          if (val.endsWith('@gmail.com')) {
+            return val;
+          }
+        }
+        return '';
+      }
+
+      // Sheet đề tài phụ (ví dụ sheet '3. team projects' nếu có trong file Excel)
+      let projectMapByGroup = {};
+      const projSheetName = wb.SheetNames.find(s => /team\s*project|project|[đd][eề]\s*t[aà]i/i.test(s));
+      if (projSheetName && projSheetName !== wb.SheetNames[0]) {
+        try {
+          const pRaw = XLSX.utils.sheet_to_json(wb.Sheets[projSheetName], { defval: '' });
+          if (pRaw && pRaw.length > 0) {
+            const pKeys = Object.keys(pRaw[0]);
+            const pGrpKey = pKeys.find(k => /nh[oó]m|stt|team|group/i.test(k));
+            const pNameKey = pKeys.find(k => /[đd][eề]\s*t[aà]i|project|topic|t[eê]n/i.test(k) && k !== pGrpKey);
+            if (pGrpKey && pNameKey) {
+              pRaw.forEach(pr => {
+                const grpRaw = String(pr[pGrpKey] || '').trim();
+                const num = grpRaw.match(/\d+/);
+                if (num) {
+                  const pTitle = String(pr[pNameKey] || '').trim();
+                  projectMapByGroup[`Nhóm ${num[0].padStart(2, '0')}`] = pTitle;
+                  projectMapByGroup[num[0]] = pTitle;
+                }
+              });
+            }
+          }
+        } catch (e) {
+          console.warn('Read project sheet error:', e);
+        }
+      }
 
       // Tập hợp để theo dõi người đầu tiên trong từng nhóm xuất hiện trong danh sách
       const seenGroups = new Set();
@@ -528,10 +583,9 @@ window.handleImportFile = function(file) {
           const name = String(r[nameKey] || '').trim();
           if (!name) return false;
 
-          const rawEmail = emailOrigKey ? String(r[emailOrigKey] || '').trim().toLowerCase() : '';
-          // Chỉ lấy email có đuôi @gmail.com; bỏ qua email đuôi HUST (@sis.hust.edu.vn, @hust.edu.vn) hoặc dòng không có Gmail
-          const isGmail = rawEmail.endsWith('@gmail.com');
-          if (!isGmail) {
+          const gmail = extractRowGmail(r);
+          // Chỉ lấy sinh viên có Gmail hợp lệ (@gmail.com); bỏ qua nếu không có hoặc là mail HUST
+          if (!gmail) {
             skippedCount++;
             return false;
           }
@@ -540,13 +594,12 @@ window.handleImportFile = function(file) {
         .map(r => {
           const name = String(r[nameKey] || '').trim();
           const mssv = String(r[mssvKey] || '').trim().replace(/\D/g, ''); // chỉ lấy chữ số
-          const rawEmail = String(r[emailOrigKey] || '').trim().toLowerCase();
-          const email = rawEmail; // Chắc chắn có đuôi @gmail.com
-          const originalEmail = rawEmail;
+          const email = extractRowGmail(r);
+          const originalEmail = email;
 
           const exists = Boolean(DB.users().find(u => 
             (u.email && u.email.toLowerCase() === email) || 
-            (r.mssv && u.mssv && u.mssv === r.mssv)
+            (mssv && u.mssv && u.mssv === mssv)
           ));
 
           // Chuẩn hóa tên nhóm: ví dụ "1" -> "Nhóm 01", "Nhóm 1" -> "Nhóm 01", hoặc giữ nguyên nếu đã có chữ "Nhóm ..."
@@ -562,7 +615,10 @@ window.handleImportFile = function(file) {
             }
           }
 
-          const projectName = projectKey ? String(r[projectKey] || '').trim() : '';
+          let projectName = projectKey ? String(r[projectKey] || '').trim() : '';
+          if (!projectName && groupName && projectMapByGroup[groupName]) {
+            projectName = projectMapByGroup[groupName];
+          }
 
           // Phân vai trò: Người đầu tiên của nhóm có Gmail xuất hiện trong danh sách = Nhóm trưởng ('nhomt'), còn lại = Sinh viên ('sinhvien')
           let role = 'sinhvien';
