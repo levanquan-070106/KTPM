@@ -298,6 +298,205 @@ const fileIcon = name => {
   return {docx:'📝',doc:'📝',pptx:'📊',ppt:'📊',pdf:'📋',xlsx:'📈',xls:'📈',zip:'📦',rar:'📦'}[ext] || '📄';
 };
 
+/* ════ UNIVERSAL FILE STORAGE & VIEWING HELPERS ════ */
+const FileStore = (() => {
+  let _db = null;
+  function open() {
+    if (_db) return Promise.resolve(_db);
+    return new Promise((res, rej) => {
+      if (typeof indexedDB === 'undefined') return res(null);
+      const req = indexedDB.open('ktpmud_files', 1);
+      req.onupgradeneeded = e => e.target.result.createObjectStore('files', { keyPath: 'key' });
+      req.onsuccess = e => { _db = e.target.result; res(_db); };
+      req.onerror = () => rej(req.error);
+    });
+  }
+  return {
+    async put(key, dataUrl) {
+      const db = await open();
+      if (!db) return;
+      return new Promise((res, rej) => {
+        const tx = db.transaction('files', 'readwrite');
+        tx.objectStore('files').put({ key, dataUrl });
+        tx.oncomplete = res; tx.onerror = () => rej(tx.error);
+      });
+    },
+    async get(key) {
+      const db = await open();
+      if (!db) return null;
+      return new Promise((res, rej) => {
+        const tx = db.transaction('files', 'readonly');
+        const req = tx.objectStore('files').get(key);
+        req.onsuccess = () => res(req.result?.dataUrl || null);
+        req.onerror = () => rej(req.error);
+      });
+    },
+    async del(key) {
+      const db = await open();
+      if (!db) return;
+      return new Promise((res, rej) => {
+        const tx = db.transaction('files', 'readwrite');
+        tx.objectStore('files').delete(key);
+        tx.oncomplete = res; tx.onerror = () => rej(tx.error);
+      });
+    }
+  };
+})();
+
+function downloadFileUnified(f) {
+  if (typeof f === 'string') f = { name: f };
+  if (!f || !f.name) return;
+  
+  if (f.path) {
+    const fullUrl = f.path.startsWith('http') ? f.path : (location.origin + f.path);
+    const a = document.createElement('a'); a.href = fullUrl; a.download = f.name; a.target = '_blank';
+    document.body.appendChild(a); a.click(); document.body.removeChild(a);
+    showToast(`⬇️ Đang tải ${f.name}...`, 'info');
+    return;
+  }
+  if (f.dataUrl) {
+    const a = document.createElement('a'); a.href = f.dataUrl; a.download = f.name;
+    document.body.appendChild(a); a.click(); document.body.removeChild(a);
+    showToast(`⬇️ Đang tải ${f.name}...`, 'info');
+    return;
+  }
+  if (f.fileKey) {
+    FileStore.get(f.fileKey).then(dataUrl => {
+      if (dataUrl) {
+        const a = document.createElement('a'); a.href = dataUrl; a.download = f.name;
+        document.body.appendChild(a); a.click(); document.body.removeChild(a);
+        showToast(`⬇️ Đang tải ${f.name}...`, 'info');
+      } else {
+        generateSampleFileDownload(f);
+      }
+    }).catch(() => generateSampleFileDownload(f));
+    return;
+  }
+  generateSampleFileDownload(f);
+}
+
+function generateSampleFileDownload(f) {
+  const content = `========================================================\n` +
+    `TÀI LIỆU DỰ ÁN: ${f.name || 'TaiLieu.docx'}\n` +
+    `Hệ thống Quản lý Tiến độ Project KTPMUD - ĐHBK Hà Nội\n` +
+    `========================================================\n\n` +
+    `• Tên file: ${f.name}\n` +
+    `• Dung lượng: ${fmtBytes(f.size || 512000)}\n` +
+    `• Trạng thái: File tài liệu đính kèm của nhóm sinh viên\n` +
+    `• Nội dung: Báo cáo tiến độ hoàn thiện đề tài, kiến trúc hệ thống và slide thuyết trình.\n\n` +
+    `--------------------------------------------------------\n` +
+    `Ngày tải xuống: ${new Date().toLocaleString('vi-VN')}\n`;
+  const blob = new Blob([content], { type: 'text/plain;charset=utf-8' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a'); a.href = url; a.download = f.name ? (f.name.endsWith('.txt') ? f.name : f.name + '.txt') : 'TaiLieu.txt';
+  document.body.appendChild(a); a.click(); document.body.removeChild(a);
+  showToast(`✅ Đã tải tài liệu: ${f.name}`, 'success');
+}
+
+function viewFileUnified(f) {
+  if (typeof f === 'string') f = { name: f };
+  if (!f || !f.name) return;
+  const ext = (f.name || '').split('.').pop().toLowerCase();
+
+  if (f.path) {
+    const fullUrl = f.path.startsWith('http') ? f.path : (location.origin + f.path);
+    if (ext === 'pdf') {
+      window.open(fullUrl, '_blank');
+      return;
+    }
+    if (location.hostname !== 'localhost' && location.hostname !== '127.0.0.1') {
+      const officeViewer = `https://view.officeapps.live.com/op/view.aspx?src=${encodeURIComponent(fullUrl)}`;
+      window.open(officeViewer, '_blank');
+    } else {
+      downloadFileUnified(f);
+      showToast(`👁 File ${f.name} đã được tải về để bạn mở xem bằng Office.`, 'info');
+    }
+    return;
+  }
+
+  if (f.dataUrl) {
+    openDataUrlViewer(f.name, f.dataUrl);
+    return;
+  }
+
+  if (f.fileKey) {
+    FileStore.get(f.fileKey).then(dataUrl => {
+      if (dataUrl) {
+        openDataUrlViewer(f.name, dataUrl);
+      } else {
+        showFileSampleModal(f);
+      }
+    }).catch(() => showFileSampleModal(f));
+    return;
+  }
+
+  showFileSampleModal(f);
+}
+
+function openDataUrlViewer(name, dataUrl) {
+  const ext = (name || '').split('.').pop().toLowerCase();
+  try {
+    const byteStr = atob(dataUrl.split(',')[1]);
+    const ab = new ArrayBuffer(byteStr.length);
+    const ia = new Uint8Array(ab);
+    for (let i = 0; i < byteStr.length; i++) ia[i] = byteStr.charCodeAt(i);
+    const mimeMap = {
+      pdf: 'application/pdf',
+      docx: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+      doc: 'application/msword',
+      pptx: 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+      ppt: 'application/vnd.ms-powerpoint',
+      xlsx: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+    };
+    const blob = new Blob([ab], { type: mimeMap[ext] || 'application/octet-stream' });
+    const url = URL.createObjectURL(blob);
+    if (ext === 'pdf') {
+      window.open(url, '_blank');
+    } else {
+      const a = document.createElement('a'); a.href = url; a.download = name; a.click();
+      showToast(`👁 Đang tải ${name} để bạn mở xem bằng Office.`, 'info');
+    }
+  } catch (err) {
+    downloadFileUnified({ name, dataUrl });
+  }
+}
+
+function showFileSampleModal(f) {
+  const modalId = 'm-sample-file-preview';
+  let m = document.getElementById(modalId);
+  if (!m) {
+    m = document.createElement('div');
+    m.id = modalId;
+    m.className = 'modal-overlay';
+    document.body.appendChild(m);
+  }
+  m.innerHTML = `
+    <div class="modal modal-md">
+      <div class="modal-header">
+        <div class="modal-title">📄 Chi tiết tài liệu: ${f.name}</div>
+        <button class="modal-close" onclick="closeModal('${modalId}')">✕</button>
+      </div>
+      <div style="background:var(--gray-50);padding:16px;border-radius:var(--radius-sm);margin-bottom:16px">
+        <div class="flex items-center gap-3 mb-3">
+          <div style="font-size:36px">${fileIcon(f.name)}</div>
+          <div>
+            <div class="font-bold text-sm">${f.name}</div>
+            <div class="text-xs text-muted">Dung lượng: ${fmtBytes(f.size || 512000)} · Định dạng: ${((f.name||'').split('.').pop()||'DOCX').toUpperCase()}</div>
+          </div>
+        </div>
+        <div style="font-size:12px;color:var(--text-secondary);line-height:1.6">
+          Tài liệu đính kèm của sinh viên trong tiến độ đồ án. Bạn có thể tải file về máy tính hoặc mở xem trực tiếp.
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" onclick="closeModal('${modalId}')">Đóng</button>
+        <button type="button" class="btn btn-primary" onclick="generateSampleFileDownload({name:'${f.name}', size:${f.size || 512000}})">⬇️ Tải file về máy</button>
+      </div>
+    </div>
+  `;
+  openModal(modalId);
+}
+
 function getInitials(name) {
   if (!name) return '?';
   const p = name.trim().split(' ');
@@ -488,6 +687,49 @@ function seedIfNeeded(force = false) {
     reps.push({ id:`r2${w}`, groupId:'g2', week:w, summary:`Tuần ${w}: Tiến độ phát triển ứng dụng đặt lịch phòng học`, files:[{name:`report_w${w}.docx`, size:300*1024, type:'docx'}], submittedAt: new Date(SEMESTER_START.getTime()+(w*7)*24*3600*1000).toISOString(), submittedBy:'u6', status: w<=4?'graded':'submitted', grade:w<=4?parseFloat((6.5+w*0.3).toFixed(1)):null, feedback:w<=4?'Nhóm cần bổ sung thêm tiến độ chi tiết hơn.':null, gradedAt:null });
   }
   _set(K.REPORTS, reps);
+
+  // Products (Sản phẩm cuối kỳ mẫu)
+  _set(K.PRODUCTS, [
+    {
+      id: 'p1',
+      groupId: 'g1',
+      name: 'Hệ thống Quản lý Tiến độ Project (KTPMUD)',
+      description: 'Hệ thống web hoàn chỉnh hỗ trợ giảng viên theo dõi tiến độ đồ án phần mềm theo từng tuần, quản lý Kanban cá nhân, nộp báo cáo kèm slide và bảng điểm tự động hóa.',
+      github: 'https://github.com/levanquan-070106/KTPM',
+      demo: 'https://ktpm-gwde.onrender.com',
+      video: 'https://www.youtube.com/watch?v=dQw4w9WgXcQ',
+      selfScore: 9.0,
+      files: [
+        { name: 'BaoCao_CuoiKy_Nhom01.docx', size: 1250000, type: 'docx' },
+        { name: 'Slide_ThuyetTrinh_KTPMUD.pptx', size: 3450000, type: 'pptx' },
+        { name: 'KienTruc_HeThong_API.pdf', size: 850000, type: 'pdf' }
+      ],
+      submittedAt: new Date().toISOString(),
+      submittedBy: 'u3',
+      grade: 9.2,
+      feedback: 'Sản phẩm hoàn thiện xuất sắc. Giao diện trực quan, tính năng phân quyền nhóm rõ ràng và tích hợp đầy đủ quy trình kiểm thử.',
+      gradedAt: new Date().toISOString()
+    },
+    {
+      id: 'p2',
+      groupId: 'g2',
+      name: 'Ứng dụng Đặt lịch và Quản lý Phòng học Thông minh',
+      description: 'Ứng dụng di động và web portal quản lý việc mượn và đặt trước phòng thực hành công nghệ thông tin cho sinh viên và cán bộ giảng dạy.',
+      github: 'https://github.com/example/room-booking-ktpm',
+      demo: 'https://room-booking-demo.vercel.app',
+      video: '',
+      selfScore: 8.5,
+      files: [
+        { name: 'BaoCao_NghiemThu_Nhom02.docx', size: 980000, type: 'docx' },
+        { name: 'Slide_Demo_RoomBooking.pptx', size: 2100000, type: 'pptx' }
+      ],
+      submittedAt: new Date(Date.now() - 2 * 24 * 3600 * 1000).toISOString(),
+      submittedBy: 'u6',
+      grade: null,
+      feedback: null,
+      gradedAt: null
+    }
+  ]);
 
   // Grades
   _set(K.GRADES, [

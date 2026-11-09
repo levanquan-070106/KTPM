@@ -511,41 +511,16 @@ render();
 
 /* ════ FILE RENDERING & VIEWING HELPERS ════ */
 function renderFileItem(f) {
-  const ext = (f.name || '').split('.').pop().toLowerCase();
-  const hasPath = Boolean(f.path);
-  const hasDataUrl = Boolean(f.dataUrl);
-  const hasKey = Boolean(f.fileKey);
-
-  let viewHtml = '';
-  let dlHtml = '';
-
-  if (hasPath) {
-    const fullUrl = f.path.startsWith('http') ? f.path : (location.origin + f.path);
-    if (ext === 'pdf') {
-      viewHtml = `<a href="${fullUrl}" target="_blank" class="btn btn-secondary btn-sm">👁 Xem</a>`;
-    } else {
-      const officeViewer = `https://view.officeapps.live.com/op/view.aspx?src=${encodeURIComponent(fullUrl)}`;
-      viewHtml = `<a href="${officeViewer}" target="_blank" class="btn btn-secondary btn-sm" title="Xem trực tuyến bằng Office Online">👁 Xem online</a>`;
-    }
-    dlHtml = `<a href="${fullUrl}" download="${f.name}" class="btn btn-ghost btn-sm" title="Tải xuống">⬇️ Tải file</a>`;
-  } else if (hasDataUrl) {
-    viewHtml = `<button class="btn btn-secondary btn-sm" onclick="viewFileDataUrl('${encodeURIComponent(f.name)}', this)" data-url="${f.dataUrl}">👁 Xem</button>`;
-    dlHtml = `<a href="${f.dataUrl}" download="${f.name}" class="btn btn-ghost btn-sm">⬇️ Tải file</a>`;
-  } else if (hasKey) {
-    viewHtml = `<button class="btn btn-secondary btn-sm" onclick="viewFileByKey(this, '${f.name}', '${f.fileKey}')">👁 Xem</button>`;
-    dlHtml = `<button class="btn btn-ghost btn-sm" onclick="downloadFileByKey('${f.name}', '${f.fileKey}')">⬇️ Tải file</button>`;
-  } else {
-    viewHtml = `<span class="badge badge-gray">File mẫu</span>`;
-  }
-
+  if (typeof f === 'string') f = { name: f };
+  const jsonStr = encodeURIComponent(JSON.stringify(f));
   return `
     <div class="file-item">
       <span class="fi-icon">${fileIcon(f.name)}</span>
       <span class="fi-name">${f.name}</span>
       <span class="fi-size">${fmtBytes(f.size || 0)}</span>
       <div style="display:flex;gap:4px;flex-shrink:0;align-items:center">
-        ${viewHtml}
-        ${dlHtml}
+        <button type="button" class="btn btn-secondary btn-sm" onclick="viewFileUnified(JSON.parse(decodeURIComponent('${jsonStr}')))">👁 Xem</button>
+        <button type="button" class="btn btn-ghost btn-sm" onclick="downloadFileUnified(JSON.parse(decodeURIComponent('${jsonStr}')))">⬇️ Tải file</button>
       </div>
     </div>`;
 }

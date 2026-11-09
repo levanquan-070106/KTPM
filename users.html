@@ -212,14 +212,17 @@ function render() {
     users = users.filter(u => u.role === filterRole);
   }
   if (filterClassId !== 'all') {
-    users = users.filter(u => u.role !== 'giaovien' && DB.userClassId(u) === filterClassId);
+    users = users.filter(u => u.role === 'giaovien' || DB.userClassId(u) === filterClassId);
   }
   if (searchText) {
     const q = searchText.toLowerCase();
-    users = users.filter(u =>
-      u.name.toLowerCase().includes(q) ||
-      u.email.toLowerCase().includes(q)
-    );
+    users = users.filter(u => {
+      const group = DB.groupOfUser(u.id);
+      return u.name.toLowerCase().includes(q) ||
+        u.email.toLowerCase().includes(q) ||
+        (u.mssv && u.mssv.includes(q)) ||
+        (group && group.name.toLowerCase().includes(q));
+    });
   }
 
   el.innerHTML = `
@@ -270,8 +273,8 @@ function render() {
     <div class="card" style="margin-bottom:16px">
       <div class="flex items-center gap-3 flex-wrap">
         <div style="flex:1;min-width:200px">
-          <input class="form-control" id="search-input" placeholder="🔍 Tìm theo họ tên hoặc email..."
-            value="${searchText}" oninput="handleSearch(this.value)"/>
+          <input class="form-control" id="search-input" placeholder="🔍 Tìm theo họ tên, email, nhóm..."
+            value="${searchText}"/>
         </div>
         <div class="flex gap-2">
           ${[
@@ -355,7 +358,23 @@ function render() {
     </div>
   `;
 
-  document.getElementById('search-input').oninput = e => { searchText = e.target.value; render(); };
+  // Sau khi render xong, gắn lại sự kiện search và giữ focus + vị trí con trỏ
+  const searchEl = document.getElementById('search-input');
+  if (searchEl) {
+    searchEl.oninput = e => {
+      searchText = e.target.value;
+      const pos = e.target.selectionStart;
+      render();
+      // Khôi phục focus và vị trí con trỏ sau khi render
+      const el2 = document.getElementById('search-input');
+      if (el2) { el2.focus(); el2.setSelectionRange(pos, pos); }
+    };
+    // Nếu đang có searchText, tự động focus lại ô tìm kiếm
+    if (searchText && document.activeElement !== searchEl) {
+      searchEl.focus();
+      searchEl.setSelectionRange(searchText.length, searchText.length);
+    }
+  }
 }
 
 window.handleSearch = function(val) { searchText = val; render(); };

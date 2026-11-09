@@ -125,6 +125,7 @@ function render() {
             <th>Vai trò</th>
             <th>Nhóm</th>
             <th>Lớp</th>
+            <th>Sản phẩm CK</th>
             <th>Công việc (Kanban)</th>
             <th>Tiến độ cá nhân</th>
             <th>Điểm tổng kết</th>
@@ -133,12 +134,13 @@ function render() {
         </thead>
         <tbody>
           ${students.length === 0 ? `
-            <tr><td colspan="10"><div class="empty"><div class="empty-icon">🎓</div><p>Không tìm thấy sinh viên nào trong lớp này</p></div></td></tr>
+            <tr><td colspan="11"><div class="empty"><div class="empty-icon">🎓</div><p>Không tìm thấy sinh viên nào trong lớp này</p></div></td></tr>
           ` : students.map((s, idx) => {
             const uTasks = tasks.filter(t => t.assignee === s.user.id);
             const doneTasks = uTasks.filter(t => t.status === 'done').length;
             const pct = uTasks.length > 0 ? Math.round((doneTasks / uTasks.length) * 100) : 0;
             const grade = s.group ? DB.gradeByGroup(s.group.id) : null;
+            const prod = s.group ? DB.products().find(p => p.groupId === s.group.id) : null;
 
             return `<tr>
               <td class="text-muted">${idx + 1}</td>
@@ -152,6 +154,13 @@ function render() {
               <td>${s.user.role === 'nhomt' ? '<span class="badge badge-gray font-bold">NT</span>' : '<span class="badge badge-outline">SV</span>'}</td>
               <td>${s.group ? `<span class="chip font-semibold">${s.group.name}</span>` : '<span class="badge badge-outline">Chưa có nhóm</span>'}</td>
               <td class="text-xs text-secondary">${s.classroom?.name || '—'}</td>
+              <td>
+                ${prod ? `
+                  <a href="product.html" class="badge ${prod.grade != null ? 'badge-success' : 'badge-warning'}" style="text-decoration:none" title="Xem & chấm điểm sản phẩm cuối kỳ">
+                    📦 ${prod.grade != null ? `${prod.grade}/10` : 'Đã nộp'}
+                  </a>
+                ` : '<span class="text-xs text-muted">Chưa nộp</span>'}
+              </td>
               <td>
                 <span class="font-bold text-success">${doneTasks}</span><span class="text-muted">/${uTasks.length} task</span>
               </td>

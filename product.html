@@ -47,9 +47,14 @@
         </div>
       </div>
       <div class="form-group">
-        <label class="form-label">Tài liệu báo cáo cuối kỳ (.docx, .pptx, .pdf)</label>
-        <input id="prod-files" class="form-control" placeholder="BaoCaoCuoiKy.docx, SlideBaoCao.pptx, TaiLieuAPI.pdf"/>
-        <div class="form-hint">Nhập tên các file tài liệu và slide đã đính kèm</div>
+        <label class="form-label">📎 Đính kèm tài liệu & Slide báo cáo (.docx, .pptx, .pdf, .zip)</label>
+        <div class="drop-zone" id="prod-drop-zone" onclick="document.getElementById('prod-file-input').click()" style="cursor:pointer">
+          <input type="file" id="prod-file-input" multiple accept=".docx,.doc,.pptx,.ppt,.pdf,.xlsx,.zip,.rar" style="display:none" onchange="handleProdFiles(this.files)"/>
+          <div class="dz-icon">📁</div>
+          <div class="dz-text">Kéo thả file Báo cáo (.docx, .pdf) & Slide (.pptx) vào đây hoặc <strong>click để chọn file</strong></div>
+          <div class="dz-hint">Hỗ trợ: Word (.docx), PowerPoint (.pptx), PDF (.pdf), Nén (.zip, .rar) · Tối đa 50MB/file</div>
+        </div>
+        <div id="prod-file-list" class="file-list" style="margin-top:10px"></div>
       </div>
       <div class="modal-footer">
         <button type="button" class="btn btn-secondary" onclick="closeModal('m-product')">Hủy</button>
@@ -107,8 +112,8 @@ function render() {
 function renderGV(el) {
   const cid = DB.curClassId();
   const cls = cid ? DB.findClass(cid) : null;
-  const myClasses = DB.classes().filter(c => c.lecturerId === user.id);
-  const groups = cid ? DB.groupsByClass(cid) : DB.groups().filter(g => myClasses.some(c => c.id === g.classId));
+  const classes = DB.classes();
+  const groups = cid ? DB.groupsByClass(cid) : DB.groups();
   const products = DB.products();
 
   const submittedCount = products.filter(p => groups.some(g => g.id === p.groupId)).length;
@@ -121,6 +126,18 @@ function renderGV(el) {
         <h1>📦 Sản phẩm cuối kỳ</h1>
         <p class="page-desc">${cls ? cls.name + ' · ' : ''}Theo dõi và chấm điểm sản phẩm hoàn thiện của các nhóm</p>
       </div>
+    </div>
+
+    <!-- Bộ lọc theo Lớp học -->
+    <div class="flex gap-2 mb-4" style="flex-wrap:wrap">
+      <button class="btn ${!cid ? 'btn-primary' : 'btn-secondary'} btn-sm" onclick="DB.setCurClass('all'); render()">
+        🌐 Tất cả các lớp (${DB.groups().length} nhóm)
+      </button>
+      ${classes.map(c => `
+        <button class="btn ${cid === c.id ? 'btn-primary' : 'btn-secondary'} btn-sm" onclick="DB.setCurClass('${c.id}'); render()">
+          🏫 ${c.name} (${DB.groupsByClass(c.id).length} nhóm)
+        </button>
+      `).join('')}
     </div>
 
     <div class="stat-grid" style="grid-template-columns:repeat(4,1fr);margin-bottom:20px">
@@ -176,7 +193,7 @@ function renderGV(el) {
                   ${p.demo ? `<a href="${p.demo}" target="_blank" class="chip">🌐 Live Demo</a>` : ''}
                   ${p.video ? `<a href="${p.video}" target="_blank" class="chip">▶️ Video</a>` : ''}
                 </div>
-                ${p.files ? `<div class="text-xs text-muted mt-2">📎 ${p.files}</div>` : ''}
+                ${p.files ? renderProductFiles(p.files) : ''}
               </div>
               <div class="text-xs text-muted mb-3">Nộp lúc: ${fmtDateTime(p.submittedAt)}</div>
               <button class="btn ${p.grade != null ? 'btn-secondary' : 'btn-primary'} btn-sm w-full"
@@ -262,10 +279,7 @@ function renderGroup(el) {
             ${p.video ? `<a href="${p.video}" target="_blank" class="btn btn-secondary btn-sm">▶️ Video Thuyết trình</a>` : ''}
           </div>
 
-          ${p.files ? `
-            <div class="card-label mt-3">FILE BÁO CÁO TỔNG KẾT</div>
-            <div class="chip" style="font-size:12px;padding:6px 12px">📎 ${p.files}</div>
-          ` : ''}
+          ${p.files ? renderProductFiles(p.files) : ''}
         </div>
 
         <div style="display:flex;flex-direction:column;gap:16px">
@@ -318,7 +332,106 @@ function renderGroup(el) {
   `;
 }
 
-// ── Modals ──
+// ── File Helpers & Modals ──
+let pendingProdFiles = [];
+
+function readFileAsBase64(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload  = e => resolve(e.target.result);
+    reader.onerror = reject;
+    reader.readAsDataURL(file);
+  });
+}
+
+window.handleProdFiles = async function(files) {
+  const allowed = ['docx','doc','pptx','ppt','pdf','xlsx','xls','zip','rar'];
+  for (const f of Array.from(files)) {
+    const ext = f.name.split('.').pop().toLowerCase();
+    if (!allowed.includes(ext)) { showToast(`File ${f.name} không được hỗ trợ!`, 'error'); continue; }
+    if (f.size > 50*1024*1024) { showToast(`File ${f.name} quá lớn (>50MB)!`, 'error'); continue; }
+    if (pendingProdFiles.find(p => p.name === f.name)) { showToast(`File ${f.name} đã được thêm!`, 'warning'); continue; }
+    
+    showToast(`Đang đọc file ${f.name}...`, 'info');
+    let dataUrl = null;
+    try {
+      dataUrl = await readFileAsBase64(f);
+      const fileKey = `prod_file_${Date.now()}_${f.name}`;
+      await FileStore.put(fileKey, dataUrl);
+      pendingProdFiles.push({ name: f.name, size: f.size, type: ext, fileKey, rawFile: f });
+    } catch {
+      pendingProdFiles.push({ name: f.name, size: f.size, type: ext, rawFile: f });
+    }
+  }
+  renderProdFileList();
+};
+
+function renderProdFileList() {
+  const list = document.getElementById('prod-file-list');
+  if (!list) return;
+  list.innerHTML = pendingProdFiles.map((f, i) => `
+    <div class="file-item">
+      <span class="fi-icon">${fileIcon(f.name)}</span>
+      <span class="fi-name">${f.name}</span>
+      <span class="fi-size">${fmtBytes(f.size || 0)}</span>
+      <span style="font-size:10px;color:#16a34a;font-weight:600">✓ Sẵn sàng</span>
+      <button type="button" class="fi-remove" onclick="removeProdFile(${i})">✕</button>
+    </div>
+  `).join('');
+}
+
+window.removeProdFile = function(i) {
+  pendingProdFiles.splice(i, 1);
+  renderProdFileList();
+};
+
+function renderProductFiles(files) {
+  if (!files) return '';
+  let arr = [];
+  if (Array.isArray(files)) {
+    arr = files;
+  } else if (typeof files === 'string' && files.trim()) {
+    try {
+      const parsed = JSON.parse(files);
+      arr = Array.isArray(parsed) ? parsed : [{ name: files }];
+    } catch {
+      arr = files.split(',').map(s => ({ name: s.trim() })).filter(x => x.name);
+    }
+  }
+  if (arr.length === 0) return '';
+  return `
+    <div class="mt-2 mb-2">
+      <div class="text-xs font-bold text-muted mb-1">📎 TÀI LIỆU & SLIDE BÁO CÁO:</div>
+      <div style="display:flex;flex-direction:column;gap:6px">
+        ${arr.map(f => {
+          const jsonStr = encodeURIComponent(JSON.stringify(f));
+          return `
+            <div class="file-item" style="padding:6px 10px;background:#fff">
+              <span class="fi-icon">${fileIcon(f.name)}</span>
+              <span class="fi-name" style="font-size:12px">${f.name}</span>
+              <span class="fi-size">${fmtBytes(f.size || 0)}</span>
+              <div style="display:flex;gap:4px;margin-left:auto;align-items:center">
+                <button type="button" class="btn btn-secondary btn-sm" onclick="viewFileUnified(JSON.parse(decodeURIComponent('${jsonStr}')))">👁 Xem</button>
+                <button type="button" class="btn btn-ghost btn-sm" onclick="downloadFileUnified(JSON.parse(decodeURIComponent('${jsonStr}')))">⬇️ Tải file</button>
+              </div>
+            </div>`;
+        }).join('')}
+      </div>
+    </div>`;
+}
+
+// Drag & drop cho product modal
+document.addEventListener('DOMContentLoaded', () => {
+  const dz = document.getElementById('prod-drop-zone');
+  if (!dz) return;
+  dz.addEventListener('dragover', e => { e.preventDefault(); dz.classList.add('drag-over'); });
+  dz.addEventListener('dragleave', () => dz.classList.remove('drag-over'));
+  dz.addEventListener('drop', e => {
+    e.preventDefault(); dz.classList.remove('drag-over');
+    if (e.dataTransfer && e.dataTransfer.files) handleProdFiles(e.dataTransfer.files);
+  });
+});
+
 window.openProductModal = function(id = '') {
   const p = id ? DB.products().find(prod => prod.id === id) : null;
   const group = DB.groupOfUser(user.id);
@@ -331,12 +444,26 @@ window.openProductModal = function(id = '') {
   document.getElementById('prod-demo').value = p?.demo || '';
   document.getElementById('prod-video').value = p?.video || '';
   document.getElementById('prod-self').value = p?.selfScore ?? '';
-  document.getElementById('prod-files').value = p?.files || '';
+
+  // Nạp danh sách file đã nộp trước đó
+  if (Array.isArray(p?.files)) {
+    pendingProdFiles = [...p.files];
+  } else if (typeof p?.files === 'string' && p.files.trim()) {
+    try {
+      const parsed = JSON.parse(p.files);
+      pendingProdFiles = Array.isArray(parsed) ? parsed : [{ name: p.files }];
+    } catch {
+      pendingProdFiles = p.files.split(',').map(s => ({ name: s.trim() })).filter(x => x.name);
+    }
+  } else {
+    pendingProdFiles = [];
+  }
+  renderProdFileList();
 
   openModal('m-product');
 };
 
-window.saveProduct = function(e) {
+window.saveProduct = async function(e) {
   e.preventDefault();
   const id = document.getElementById('prod-id').value;
   const name = document.getElementById('prod-name').value.trim();
@@ -345,13 +472,42 @@ window.saveProduct = function(e) {
   const demo = document.getElementById('prod-demo').value.trim();
   const video = document.getElementById('prod-video').value.trim();
   const selfScore = parseFloat(document.getElementById('prod-self').value) || null;
-  const files = document.getElementById('prod-files').value.trim();
   const group = DB.groupOfUser(user.id);
 
   if (!name || !desc) { showToast('Vui lòng nhập tên và mô tả sản phẩm!', 'error'); return; }
 
+  // Chuẩn bị danh sách file
+  let uploadedFiles = pendingProdFiles.map(f => ({
+    name: f.name,
+    size: f.size || 0,
+    type: f.type || (f.name.split('.').pop().toLowerCase()),
+    path: f.path || null,
+    fileKey: f.fileKey || null
+  }));
+
+  // Upload lên server nếu có rawFile
+  const filesToUpload = pendingProdFiles.filter(f => f.rawFile);
+  if (location.protocol.startsWith('http') && filesToUpload.length > 0) {
+    try {
+      showToast('Đang tải file đính kèm lên máy chủ...', 'info');
+      const fd = new FormData();
+      filesToUpload.forEach(f => fd.append('files', f.rawFile));
+      const res = await fetch('/api/upload', { method: 'POST', body: fd });
+      const data = await res.json();
+      if (data && data.success && Array.isArray(data.files)) {
+        uploadedFiles = uploadedFiles.map(f => {
+          const match = data.files.find(df => df.originalName === f.name);
+          return match ? { ...f, path: match.path } : f;
+        });
+        showToast('✅ Tải file lên máy chủ thành công!', 'success');
+      }
+    } catch (err) {
+      console.warn('Server upload failed, using local copy:', err);
+    }
+  }
+
   const obj = {
-    name, description: desc, github, demo, video, selfScore, files,
+    name, description: desc, github, demo, video, selfScore, files: uploadedFiles,
     submittedBy: user.id, submittedAt: new Date().toISOString()
   };
 
@@ -363,6 +519,7 @@ window.saveProduct = function(e) {
     showToast('✅ Đã nộp sản phẩm cuối kỳ thành công!', 'success');
   }
 
+  pendingProdFiles = [];
   closeModal('m-product');
   render();
 };
@@ -387,7 +544,7 @@ window.openGradeModal = function(pid, gid) {
         ${p?.demo ? `<a href="${p.demo}" target="_blank" class="chip">🌐 Live Demo</a>` : ''}
         ${p?.video ? `<a href="${p.video}" target="_blank" class="chip">▶️ Video</a>` : ''}
       </div>
-      ${p?.files ? `<div class="text-xs text-muted mt-2">📎 ${p.files}</div>` : ''}
+      ${p?.files ? renderProductFiles(p.files) : ''}
     </div>
   `;
 

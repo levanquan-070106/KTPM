@@ -13,6 +13,7 @@ function getNavConfig(role) {
     { id:'students', icon:'🎓', label:'Sinh viên',       href:'students.html' },
     { section:'BÁO CÁO & ĐIỂM' },
     { id:'reports',  icon:'📋', label:'Báo cáo tuần',   href:'reports.html' },
+    { id:'product',  icon:'📦', label:'Sản phẩm cuối kỳ', href:'product.html' },
     { id:'grading',  icon:'✍️', label:'Nhập điểm',      href:'grading.html' },
     { id:'gradebook',icon:'📊', label:'Bảng điểm',      href:'gradebook.html' },
     { section:'HỆ THỐNG' },
