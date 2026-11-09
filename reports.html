@@ -249,47 +249,6 @@ function renderGroup(el) {
 }
 
 
-/* ════ INDEXEDDB FILE STORE (không giới hạn dung lượng như localStorage) ════ */
-const FileStore = (() => {
-  let _db = null;
-  function open() {
-    if (_db) return Promise.resolve(_db);
-    return new Promise((res, rej) => {
-      const req = indexedDB.open('ktpmud_files', 1);
-      req.onupgradeneeded = e => e.target.result.createObjectStore('files', { keyPath: 'key' });
-      req.onsuccess = e => { _db = e.target.result; res(_db); };
-      req.onerror = () => rej(req.error);
-    });
-  }
-  return {
-    async put(key, dataUrl) {
-      const db = await open();
-      return new Promise((res, rej) => {
-        const tx = db.transaction('files', 'readwrite');
-        tx.objectStore('files').put({ key, dataUrl });
-        tx.oncomplete = res; tx.onerror = () => rej(tx.error);
-      });
-    },
-    async get(key) {
-      const db = await open();
-      return new Promise((res, rej) => {
-        const tx = db.transaction('files', 'readonly');
-        const req = tx.objectStore('files').get(key);
-        req.onsuccess = () => res(req.result?.dataUrl || null);
-        req.onerror = () => rej(req.error);
-      });
-    },
-    async del(key) {
-      const db = await open();
-      return new Promise((res, rej) => {
-        const tx = db.transaction('files', 'readwrite');
-        tx.objectStore('files').delete(key);
-        tx.oncomplete = res; tx.onerror = () => rej(tx.error);
-      });
-    }
-  };
-})();
-
 /* ════ FILE UPLOAD HANDLERS ════ */
 // Đọc file thành base64 - lưu vĩnh viễn trong localStorage, không bị mất khi server ngủ đông
 function readFileAsBase64(file) {

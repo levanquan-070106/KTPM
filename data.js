@@ -612,6 +612,16 @@ function seedIfNeeded(force = false) {
   const hasClasses = classes.length > 0;
   const hasNewUser = users.some(u => u.email === 'gv1@edu.vn');
 
+  // Cập nhật tài khoản tác giả u3 (Lê Văn Quân) có email Google và MSSV nếu chưa có
+  const existingUsers = DB.users();
+  const u3Idx = existingUsers.findIndex(u => u.id === 'u3');
+  if (u3Idx >= 0 && (!existingUsers[u3Idx].email.includes('gmail') || !existingUsers[u3Idx].mssv)) {
+    existingUsers[u3Idx].email = 'lethiquan01@gmail.com';
+    existingUsers[u3Idx].originalEmail = 'lethiquan01@gmail.com';
+    existingUsers[u3Idx].mssv = '202414324';
+    _set(K.USERS, existingUsers);
+  }
+
   // Nếu người dùng đã từng khởi tạo dữ liệu hoặc đã có lớp/người dùng, không tự động nạp lại mẫu gây trùng lặp
   const hasSeededBefore = localStorage.getItem('ktpmud_seeded');
   if (!force && (hasSeededBefore || users.length > 0 || hasClasses)) return;
@@ -621,8 +631,8 @@ function seedIfNeeded(force = false) {
   _set(K.USERS, [
     { id:'u1', name:'TS. Hoàng Quang Huy',  email:'gv1@edu.vn', password:'123456', role:'giaovien', classId:null },
     { id:'u2', name:'PGS. Nguyễn Thị Lan',  email:'gv2@edu.vn', password:'123456', role:'giaovien', classId:null },
-    { id:'u3', name:'Lê Văn Quân',           email:'nt1@edu.vn', password:'123456', role:'nhomt',    classId:'c1' },
-    { id:'u4', name:'Đỗ Xuân Nguyện',        email:'sv1@edu.vn', password:'123456', role:'sinhvien', classId:'c1' },
+    { id:'u3', name:'Lê Văn Quân',          email:'lethiquan01@gmail.com', password:'123456', role:'nhomt', classId:'c1', mssv:'202414324', originalEmail:'lethiquan01@gmail.com' },
+    { id:'u4', name:'Đỗ Xuân Nguyện',       email:'sv1@edu.vn', password:'123456', role:'sinhvien', classId:'c1', mssv:'202414288' },
     { id:'u5', name:'Trần Thị Mai',          email:'sv2@edu.vn', password:'123456', role:'sinhvien', classId:'c1' },
     { id:'u6', name:'Phạm Minh Tú',          email:'nt2@edu.vn', password:'123456', role:'nhomt',    classId:'c1' },
     { id:'u7', name:'Nguyễn Bảo Châu',       email:'sv3@edu.vn', password:'123456', role:'sinhvien', classId:'c1' },

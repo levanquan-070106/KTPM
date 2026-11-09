@@ -200,6 +200,72 @@ let searchText = '';
 
 function render() {
   const el = document.getElementById('page-content');
+  const tbody = document.getElementById('users-tbody');
+
+  // Nếu khung giao diện chưa được tạo, dựng khung 1 lần duy nhất
+  if (!tbody) {
+    el.innerHTML = `
+      <div class="page-header-row">
+        <div>
+          <h1>⚙️ Quản lý tài khoản</h1>
+          <p class="page-desc" id="page-desc-stats">Đang tải tài khoản...</p>
+        </div>
+        <div class="flex gap-2">
+          <button class="btn btn-secondary" onclick="exportCurrentUsers()">📤 Xuất Excel</button>
+          <button class="btn btn-secondary" onclick="openImportModal()">📥 Import từ Excel</button>
+          <button class="btn btn-primary" onclick="openUserModal()">➕ Thêm tài khoản</button>
+        </div>
+      </div>
+
+      <!-- Bộ lọc theo Lớp học -->
+      <div id="class-filter-wrap" class="flex gap-2 mb-4" style="flex-wrap:wrap"></div>
+
+      <!-- Thống kê tài khoản -->
+      <div id="stat-cards-wrap" class="stat-grid" style="grid-template-columns:repeat(4,1fr);margin-bottom:20px"></div>
+
+      <div class="card" style="margin-bottom:16px">
+        <div class="flex items-center gap-3 flex-wrap">
+          <div style="flex:1;min-width:200px">
+            <input class="form-control" id="search-input" placeholder="🔍 Tìm theo họ tên, email, nhóm..." autocomplete="off"/>
+          </div>
+          <div class="flex gap-2" id="role-filter-wrap"></div>
+        </div>
+      </div>
+
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>#</th>
+              <th>Họ và tên</th>
+              <th>MSSV</th>
+              <th>Tài khoản (@gmail.com)</th>
+              <th>Vai trò</th>
+              <th>Lớp học</th>
+              <th>Số nhóm</th>
+              <th>Tên đề tài</th>
+              <th>Email gốc</th>
+              <th>Mật khẩu</th>
+              <th>Thao tác</th>
+            </tr>
+          </thead>
+          <tbody id="users-tbody"></tbody>
+        </table>
+      </div>
+    `;
+
+    // Gắn sự kiện ô tìm kiếm CHỈ 1 LẦN, không bao giờ render lại thẻ input nên không bao giờ bị mất focus
+    const sInput = document.getElementById('search-input');
+    sInput.addEventListener('input', e => {
+      searchText = e.target.value;
+      updateTableAndFilters();
+    });
+  }
+
+  updateTableAndFilters();
+}
+
+function updateTableAndFilters() {
   let users = DB.users();
   const classes = DB.classes();
 
@@ -208,6 +274,63 @@ function render() {
   const totalNT = users.filter(u => u.role === 'nhomt').length;
   const totalSV = users.filter(u => u.role === 'sinhvien').length;
 
+  // Cập nhật mô tả & stat cards
+  const descEl = document.getElementById('page-desc-stats');
+  if (descEl) descEl.textContent = `${totalAll} tài khoản trong hệ thống · Phân theo từng lớp học`;
+
+  const statWrap = document.getElementById('stat-cards-wrap');
+  if (statWrap) {
+    statWrap.innerHTML = `
+      <div class="stat-card">
+        <div class="stat-icon si-black">👥</div>
+        <div><div class="stat-val">${totalAll}</div><div class="stat-lbl">Tổng tài khoản</div></div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-icon si-gray">👨‍🏫</div>
+        <div><div class="stat-val">${totalGV}</div><div class="stat-lbl">Giảng viên</div></div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-icon si-gray">👑</div>
+        <div><div class="stat-val">${totalNT}</div><div class="stat-lbl">Nhóm trưởng</div></div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-icon si-white">🎓</div>
+        <div><div class="stat-val">${totalSV}</div><div class="stat-lbl">Sinh viên</div></div>
+      </div>
+    `;
+  }
+
+  // Cập nhật bộ lọc lớp học
+  const cfWrap = document.getElementById('class-filter-wrap');
+  if (cfWrap) {
+    cfWrap.innerHTML = `
+      <button class="btn ${filterClassId === 'all' ? 'btn-primary' : 'btn-secondary'} btn-sm" onclick="setClassFilter('all')">
+        🌐 Tất cả các lớp (${totalAll})
+      </button>
+      ${classes.map(c => {
+        const cnt = DB.studentsByClass(c.id).length;
+        return `<button class="btn ${filterClassId === c.id ? 'btn-primary' : 'btn-secondary'} btn-sm" onclick="setClassFilter('${c.id}')">
+          🏫 ${c.name} (${cnt} SV)
+        </button>`;
+      }).join('')}
+    `;
+  }
+
+  // Cập nhật nút lọc vai trò
+  const rfWrap = document.getElementById('role-filter-wrap');
+  if (rfWrap) {
+    rfWrap.innerHTML = [
+      ['all', 'Tất cả'],
+      ['giaovien', 'Giảng viên'],
+      ['nhomt', 'Nhóm trưởng'],
+      ['sinhvien', 'Sinh viên']
+    ].map(([r, label]) => `
+      <button class="btn ${filterRole === r ? 'btn-primary' : 'btn-secondary'} btn-sm"
+        onclick="setFilter('${r}')">${label}</button>
+    `).join('');
+  }
+
+  // Lọc danh sách theo vai trò & lớp học
   if (filterRole !== 'all') {
     users = users.filter(u => u.role === filterRole);
   }
@@ -225,161 +348,63 @@ function render() {
     });
   }
 
-  el.innerHTML = `
-    <div class="page-header-row">
-      <div>
-        <h1>⚙️ Quản lý tài khoản</h1>
-        <p class="page-desc">${totalAll} tài khoản trong hệ thống · Phân theo từng lớp học</p>
-      </div>
-      <div class="flex gap-2">
-        <button class="btn btn-secondary" onclick="exportCurrentUsers()">📤 Xuất Excel</button>
-        <button class="btn btn-secondary" onclick="openImportModal()">📥 Import từ Excel</button>
-        <button class="btn btn-primary" onclick="openUserModal()">➕ Thêm tài khoản</button>
-      </div>
-    </div>
+  // Cập nhật tbody
+  const tbody = document.getElementById('users-tbody');
+  if (!tbody) return;
 
-    <!-- Bộ lọc theo Lớp học -->
-    <div class="flex gap-2 mb-4" style="flex-wrap:wrap">
-      <button class="btn ${filterClassId === 'all' ? 'btn-primary' : 'btn-secondary'} btn-sm" onclick="setClassFilter('all')">
-        🌐 Tất cả các lớp (${totalAll})
-      </button>
-      ${classes.map(c => {
-        const cnt = DB.studentsByClass(c.id).length;
-        return `<button class="btn ${filterClassId === c.id ? 'btn-primary' : 'btn-secondary'} btn-sm" onclick="setClassFilter('${c.id}')">
-          🏫 ${c.name} (${cnt} SV)
-        </button>`;
-      }).join('')}
-    </div>
-
-    <div class="stat-grid" style="grid-template-columns:repeat(4,1fr);margin-bottom:20px">
-      <div class="stat-card">
-        <div class="stat-icon si-black">👥</div>
-        <div><div class="stat-val">${totalAll}</div><div class="stat-lbl">Tổng tài khoản</div></div>
-      </div>
-      <div class="stat-card">
-        <div class="stat-icon si-gray">👨‍🏫</div>
-        <div><div class="stat-val">${totalGV}</div><div class="stat-lbl">Giảng viên</div></div>
-      </div>
-      <div class="stat-card">
-        <div class="stat-icon si-gray">👑</div>
-        <div><div class="stat-val">${totalNT}</div><div class="stat-lbl">Nhóm trưởng</div></div>
-      </div>
-      <div class="stat-card">
-        <div class="stat-icon si-white">🎓</div>
-        <div><div class="stat-val">${totalSV}</div><div class="stat-lbl">Sinh viên</div></div>
-      </div>
-    </div>
-
-    <div class="card" style="margin-bottom:16px">
-      <div class="flex items-center gap-3 flex-wrap">
-        <div style="flex:1;min-width:200px">
-          <input class="form-control" id="search-input" placeholder="🔍 Tìm theo họ tên, email, nhóm..."
-            value="${searchText}"/>
-        </div>
-        <div class="flex gap-2">
-          ${[
-            ['all', 'Tất cả'],
-            ['giaovien', 'Giảng viên'],
-            ['nhomt', 'Nhóm trưởng'],
-            ['sinhvien', 'Sinh viên']
-          ].map(([r, label]) => `
-            <button class="btn ${filterRole === r ? 'btn-primary' : 'btn-secondary'} btn-sm"
-              onclick="setFilter('${r}')">${label}</button>
-          `).join('')}
-        </div>
-      </div>
-    </div>
-
-    <div class="table-wrap">
-      <table>
-        <thead>
-          <tr>
-            <th>#</th>
-            <th>Họ và tên</th>
-            <th>MSSV</th>
-            <th>Tài khoản (@gmail.com)</th>
-            <th>Vai trò</th>
-            <th>Lớp học</th>
-            <th>Số nhóm</th>
-            <th>Tên đề tài</th>
-            <th>Email gốc</th>
-            <th>Mật khẩu</th>
-            <th>Thao tác</th>
-          </tr>
-        </thead>
-        <tbody>
-          ${users.length === 0 ? `
-            <tr><td colspan="11"><div class="empty"><div class="empty-icon">👤</div><p>Không tìm thấy tài khoản nào</p></div></td></tr>
-          ` : users.map((u, idx) => {
-            const group = DB.groupOfUser(u.id);
-            const uCid = DB.userClassId(u);
-            const cls = uCid ? DB.findClass(uCid) : null;
-            return `<tr>
-              <td class="text-muted">${idx + 1}</td>
-              <td>
-                <div class="flex items-center gap-2">
-                  <div class="avatar" style="width:28px;height:28px;font-size:10px;background:${avatarBg(u.name)}">${getInitials(u.name)}</div>
-                  <span class="font-semibold text-sm">${u.name}</span>
-                  ${u.id === user.id ? '<span class="badge badge-black" style="font-size:9px">Bạn</span>' : ''}
-                </div>
-              </td>
-              <td>${u.mssv ? `<span class="badge badge-gray" style="font-family:monospace">${u.mssv}</span>` : '<span class="text-muted">—</span>'}</td>
-              <td class="td-muted" style="font-family:monospace;font-size:12px">${u.email}</td>
-              <td>
-                ${u.role === 'giaovien' ? '<span class="badge badge-black">GV</span>' :
-                  u.role === 'nhomt' ? '<span class="badge badge-gray font-bold">NT</span>' :
-                  '<span class="badge badge-outline">SV</span>'}
-              </td>
-              <td>
-                ${u.role === 'giaovien'
-                  ? '<span class="text-xs text-muted">Giảng viên</span>'
-                  : (cls ? `<span class="badge badge-outline">🏫 ${cls.name}</span>` : '<span class="text-xs text-danger">Chưa chọn lớp</span>')}
-              </td>
-              <td>
-                ${group ? `<span class="chip font-bold">${group.name}</span>` : '<span class="text-muted">Chưa có nhóm</span>'}
-              </td>
-              <td style="font-size:12px;max-width:200px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis" title="${group?.project || ''}">
-                ${group?.project ? group.project : '<span class="text-muted">—</span>'}
-              </td>
-              <td style="font-size:12px;color:var(--text-secondary)">${u.originalEmail || '<span class="text-muted">—</span>'}</td>
-              <td><span class="chip" style="font-family:monospace;letter-spacing:1px">••••••</span></td>
-              <td>
-                <div class="flex gap-1">
-                  <button class="btn btn-secondary btn-sm" onclick="openUserModal('${u.id}')">✏️ Sửa</button>
-                  ${u.id !== user.id ? `
-                    <button class="btn btn-danger btn-sm btn-icon-sm" onclick="delUser('${u.id}')">🗑️</button>
-                  ` : ''}
-                </div>
-              </td>
-            </tr>`;
-          }).join('')}
-        </tbody>
-      </table>
-    </div>
-  `;
-
-  // Sau khi render xong, gắn lại sự kiện search và giữ focus + vị trí con trỏ
-  const searchEl = document.getElementById('search-input');
-  if (searchEl) {
-    searchEl.oninput = e => {
-      searchText = e.target.value;
-      const pos = e.target.selectionStart;
-      render();
-      // Khôi phục focus và vị trí con trỏ sau khi render
-      const el2 = document.getElementById('search-input');
-      if (el2) { el2.focus(); el2.setSelectionRange(pos, pos); }
-    };
-    // Nếu đang có searchText, tự động focus lại ô tìm kiếm
-    if (searchText && document.activeElement !== searchEl) {
-      searchEl.focus();
-      searchEl.setSelectionRange(searchText.length, searchText.length);
-    }
+  if (users.length === 0) {
+    tbody.innerHTML = `<tr><td colspan="11"><div class="empty"><div class="empty-icon">👤</div><p>Không tìm thấy tài khoản nào</p></div></td></tr>`;
+    return;
   }
+
+  tbody.innerHTML = users.map((u, idx) => {
+    const group = DB.groupOfUser(u.id);
+    const uCid = DB.userClassId(u);
+    const cls = uCid ? DB.findClass(uCid) : null;
+    return `<tr>
+      <td class="text-muted">${idx + 1}</td>
+      <td>
+        <div class="flex items-center gap-2">
+          <div class="avatar" style="width:28px;height:28px;font-size:10px;background:${avatarBg(u.name)}">${getInitials(u.name)}</div>
+          <span class="font-semibold text-sm">${u.name}</span>
+          ${u.id === user.id ? '<span class="badge badge-black" style="font-size:9px">Bạn</span>' : ''}
+        </div>
+      </td>
+      <td>${u.mssv ? `<span class="badge badge-gray" style="font-family:monospace">${u.mssv}</span>` : '<span class="text-muted">—</span>'}</td>
+      <td class="td-muted" style="font-family:monospace;font-size:12px">${u.email}</td>
+      <td>
+        ${u.role === 'giaovien' ? '<span class="badge badge-black">GV</span>' :
+          u.role === 'nhomt' ? '<span class="badge badge-gray font-bold">NT</span>' :
+          '<span class="badge badge-outline">SV</span>'}
+      </td>
+      <td>
+        ${u.role === 'giaovien'
+          ? '<span class="text-xs text-muted">Giảng viên</span>'
+          : (cls ? `<span class="badge badge-outline">🏫 ${cls.name}</span>` : '<span class="text-xs text-danger">Chưa chọn lớp</span>')}
+      </td>
+      <td>
+        ${group ? `<span class="chip font-bold">${group.name}</span>` : '<span class="text-muted">Chưa có nhóm</span>'}
+      </td>
+      <td style="font-size:12px;max-width:200px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis" title="${group?.project || ''}">
+        ${group?.project ? group.project : '<span class="text-muted">—</span>'}
+      </td>
+      <td style="font-size:12px;color:var(--text-secondary)">${u.originalEmail || '<span class="text-muted">—</span>'}</td>
+      <td><span class="chip" style="font-family:monospace;letter-spacing:1px">••••••</span></td>
+      <td>
+        <div class="flex gap-1">
+          <button class="btn btn-secondary btn-sm" onclick="openUserModal('${u.id}')">✏️ Sửa</button>
+          ${u.id !== user.id ? `
+            <button class="btn btn-danger btn-sm btn-icon-sm" onclick="delUser('${u.id}')">🗑️</button>
+          ` : ''}
+        </div>
+      </td>
+    </tr>`;
+  }).join('');
 }
 
-window.handleSearch = function(val) { searchText = val; render(); };
-window.setFilter = function(r) { filterRole = r; render(); };
-window.setClassFilter = function(cid) { filterClassId = cid; render(); };
+window.handleSearch = function(val) { searchText = val; updateTableAndFilters(); };
+window.setFilter = function(r) { filterRole = r; updateTableAndFilters(); };
+window.setClassFilter = function(cid) { filterClassId = cid; updateTableAndFilters(); };
 
 window.toggleRoleFields = function(role) {
   const wrap = document.getElementById('u-class-group-wrap');
@@ -521,76 +546,116 @@ window.handleImportFile = function(file) {
   reader.onload = function(e) {
     try {
       const wb = XLSX.read(e.target.result, { type: 'array' });
-      const ws = wb.Sheets[wb.SheetNames[0]];
-      const raw = XLSX.utils.sheet_to_json(ws, { defval: '' });
+
+      // 1. Quét tất cả các sheet trong file để chọn sheet chứa danh sách có nhiều Gmail nhất
+      let targetSheet = wb.SheetNames[0];
+      let maxGmails = -1;
+      let raw = [];
+
+      for (const sName of wb.SheetNames) {
+        try {
+          const sRaw = XLSX.utils.sheet_to_json(wb.Sheets[sName], { defval: '' });
+          if (!sRaw || sRaw.length === 0) continue;
+          let count = 0;
+          sRaw.forEach(r => {
+            for (const val of Object.values(r)) {
+              if (/[a-zA-Z0-9._%+-]+@(gmail|gmai)\.com/i.test(String(val))) {
+                count++;
+                break;
+              }
+            }
+          });
+          if (count > maxGmails) {
+            maxGmails = count;
+            targetSheet = sName;
+            raw = sRaw;
+          }
+        } catch (err) {}
+      }
+
+      if (!raw || raw.length === 0) {
+        raw = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], { defval: '' });
+      }
 
       if (!raw || raw.length === 0) {
         showToast('File Excel trống hoặc không đọc được dữ liệu!', 'error');
         return;
       }
 
-      // Tìm cột Họ và tên, MSSV, Email/Gmail, Nhóm/STT Nhóm, Tên đề tài
+      // 2. Quét các sheet để lấy MSSV chính xác theo Họ và tên (ví dụ sheet '2. lk elearning.edu.vn')
+      const mssvMapByName = {};
+      wb.SheetNames.forEach(sName => {
+        try {
+          const sRaw = XLSX.utils.sheet_to_json(wb.Sheets[sName], { defval: '' });
+          if (!sRaw || sRaw.length === 0) return;
+          const sKeys = Object.keys(sRaw[0]);
+          const sNameKey = sKeys.find(k => /h[oọ]\s*(v[aà])\s*t[eê]n|h[oọ]\s*t[eê]n|t[eê]n\s*sv/i.test(k));
+          const sMssvKey = sKeys.find(k => /mssv|m[aã]\s*s[oố]\s*sv|student\s*id/i.test(k));
+          if (sNameKey && sMssvKey) {
+            sRaw.forEach(sr => {
+              const n = String(sr[sNameKey] || '').trim().toLowerCase();
+              const m = String(sr[sMssvKey] || '').trim().replace(/\D/g, '');
+              if (n && m) mssvMapByName[n] = m;
+            });
+          }
+        } catch (err) {}
+      });
+
+      // 3. Quét các sheet để lấy Tên đề tài theo Nhóm (ví dụ sheet '3. team projects')
+      const projectMapByGroup = {};
+      wb.SheetNames.forEach(sName => {
+        try {
+          const sRaw = XLSX.utils.sheet_to_json(wb.Sheets[sName], { defval: '' });
+          if (!sRaw || sRaw.length === 0) return;
+          const sKeys = Object.keys(sRaw[0]);
+          const pGrpKey = sKeys.find(k => /nh[oó]m|stt|team|group/i.test(k));
+          const pNameKey = sKeys.find(k => /[đd][eề]\s*t[aà]i|project|topic|t[eê]n\s*[đd][eề]|s[aả]n\s*ph[aẩ]m/i.test(k) && k !== pGrpKey);
+          if (pGrpKey && pNameKey) {
+            sRaw.forEach(sr => {
+              const grpRaw = String(sr[pGrpKey] || '').trim();
+              const num = grpRaw.match(/\d+/);
+              if (num) {
+                const pTitle = String(sr[pNameKey] || '').trim();
+                projectMapByGroup[`Nhóm ${num[0].padStart(2, '0')}`] = pTitle;
+                projectMapByGroup[num[0]] = pTitle;
+              }
+            });
+          }
+        } catch (err) {}
+      });
+
+      // 4. Tìm cột trong sheet chính đã chọn
       const firstRow = raw[0];
       const keys = Object.keys(firstRow);
       const nameKey = keys.find(k => /h[oọ]\s*(v[aà])\s*t[eê]n|h[oọ]\s*t[eê]n|t[eê]n\s*sv|t[eê]n/i.test(k)) || keys[0];
-      const mssvKey = keys.find(k => /mssv|m[aã]\s*s[oố]\s*sv|student\s*id|s[oố]\s*hi[eệ]u/i.test(k)) || keys[1];
+      const mssvKey = keys.find(k => /mssv|m[aã]\s*s[oố]\s*sv|student\s*id|s[oố]\s*hi[eệ]u/i.test(k)); // Không fallback vào keys[1] tránh nhầm số nhóm
       const groupKey = keys.find(k => /nh[oó]m|stt\s*nh[oó]m|team|group/i.test(k));
       const projectKey = keys.find(k => /[đd][eề]\s*t[aà]i|project|topic|t[eê]n\s*[đd][eề]|n[oộ]i\s*dung|s[aả]n\s*ph[aẩ]m/i.test(k));
 
-      // 1. ƯU TIÊN TÌM CỘT CÓ CHỮ 'GMAIL' CHÍNH XÁC (Ví dụ cột 'Gmail' ở Col AC)
-      // Tránh lấy nhầm cột email trường (Email SV / Email)
+      // Ưu tiên cột có tên Gmail chính xác
       let gmailKey = keys.find(k => /^gmail$/i.test(k.trim()));
       if (!gmailKey) {
-        gmailKey = keys.find(k => /gmail/i.test(k) && k !== mssvKey && k !== nameKey);
+        gmailKey = keys.find(k => /gmail/i.test(k) && k !== nameKey);
       }
       if (!gmailKey) {
-        gmailKey = keys.find(k => /email|mail|t[aà]i\s*kho[aả]n/i.test(k) && k !== mssvKey && k !== nameKey);
+        gmailKey = keys.find(k => /email|mail|t[aà]i\s*kho[aả]n/i.test(k) && k !== nameKey);
       }
 
-      // Hàm tìm Gmail cho từng dòng: Ưu tiên cột Gmail, quét thêm các cột khác nếu có ô chứa @gmail.com
+      // Hàm tìm Gmail cho từng dòng: dùng Regex chuẩn quốc tế + hỗ trợ sửa lỗi gõ thiếu chữ l (@gmai.com)
       function extractRowGmail(r) {
         if (gmailKey && r[gmailKey]) {
-          let val = String(r[gmailKey]).trim().toLowerCase();
-          val = val.replace(/@gmai\.com$/i, '@gmail.com'); // sửa lỗi chính tả gõ thiếu chữ l
-          if (val.endsWith('@gmail.com')) return val;
+          const m = String(r[gmailKey]).match(/[a-zA-Z0-9._%+-]+@(gmail|gmai)\.com/i);
+          if (m) return m[0].toLowerCase().replace(/@gmai\.com$/i, '@gmail.com');
         }
-        // Quét tất cả các cột của dòng đó để không bỏ sót ô nào có chứa @gmail.com
         for (const k of Object.keys(r)) {
-          if (k === nameKey || k === mssvKey) continue;
-          let val = String(r[k] || '').trim().toLowerCase();
-          val = val.replace(/@gmai\.com$/i, '@gmail.com');
-          if (val.endsWith('@gmail.com')) {
-            return val;
+          if (k === nameKey) continue;
+          const val = String(r[k] || '');
+          const m = val.match(/[a-zA-Z0-9._%+-]+@(gmail|gmai)\.com/i);
+          if (m) {
+            return m[0].toLowerCase().replace(/@gmai\.com$/i, '@gmail.com');
           }
         }
         return '';
-      }
-
-      // Sheet đề tài phụ (ví dụ sheet '3. team projects' nếu có trong file Excel)
-      let projectMapByGroup = {};
-      const projSheetName = wb.SheetNames.find(s => /team\s*project|project|[đd][eề]\s*t[aà]i/i.test(s));
-      if (projSheetName && projSheetName !== wb.SheetNames[0]) {
-        try {
-          const pRaw = XLSX.utils.sheet_to_json(wb.Sheets[projSheetName], { defval: '' });
-          if (pRaw && pRaw.length > 0) {
-            const pKeys = Object.keys(pRaw[0]);
-            const pGrpKey = pKeys.find(k => /nh[oó]m|stt|team|group/i.test(k));
-            const pNameKey = pKeys.find(k => /[đd][eề]\s*t[aà]i|project|topic|t[eê]n/i.test(k) && k !== pGrpKey);
-            if (pGrpKey && pNameKey) {
-              pRaw.forEach(pr => {
-                const grpRaw = String(pr[pGrpKey] || '').trim();
-                const num = grpRaw.match(/\d+/);
-                if (num) {
-                  const pTitle = String(pr[pNameKey] || '').trim();
-                  projectMapByGroup[`Nhóm ${num[0].padStart(2, '0')}`] = pTitle;
-                  projectMapByGroup[num[0]] = pTitle;
-                }
-              });
-            }
-          }
-        } catch (e) {
-          console.warn('Read project sheet error:', e);
-        }
       }
 
       // Tập hợp để theo dõi người đầu tiên trong từng nhóm xuất hiện trong danh sách
@@ -612,7 +677,10 @@ window.handleImportFile = function(file) {
         })
         .map(r => {
           const name = String(r[nameKey] || '').trim();
-          const mssv = String(r[mssvKey] || '').trim().replace(/\D/g, ''); // chỉ lấy chữ số
+          let mssv = mssvKey ? String(r[mssvKey] || '').trim().replace(/\D/g, '') : '';
+          if (!mssv && mssvMapByName[name.toLowerCase()]) {
+            mssv = mssvMapByName[name.toLowerCase()];
+          }
           const email = extractRowGmail(r);
           const originalEmail = email;
 

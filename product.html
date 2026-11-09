@@ -170,7 +170,7 @@ function renderGV(el) {
             <div class="card-header">
               <div>
                 <div class="card-title">${g.name}</div>
-                <div class="card-subtitle">NT: ${leader?.name || '—'} · ${g.members.length} SV</div>
+                <div class="card-subtitle">NT: ${leader?.name || '—'} · ${g.members?.length || 0} SV</div>
               </div>
               <div>
                 ${p ? (

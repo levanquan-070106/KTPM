@@ -5,6 +5,16 @@ const os = require('os');
 const multer = require('multer');
 const db = require('./db.js');
 
+// Migration: đảm bảo tài khoản tác giả sinh viên Lê Văn Quân có email Google và MSSV chính xác
+try {
+  const u3 = db.prepare('SELECT id, email FROM users WHERE id = ?').get('u3');
+  if (u3 && (u3.email === 'nt1@edu.vn' || !u3.email.includes('gmail'))) {
+    db.prepare(`UPDATE users SET email = 'lethiquan01@gmail.com', original_email = 'lethiquan01@gmail.com', mssv = '202414324' WHERE id = 'u3'`).run();
+  }
+} catch (e) {
+  console.warn('Migration u3 error:', e.message);
+}
+
 const app = express();
 const PORT = process.env.PORT || 3000;
 
