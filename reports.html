@@ -107,55 +107,29 @@ function render() {
 
 /* ════ GIẢNG VIÊN ════ */
 function renderGV(el) {
-  const cid = DB.curClassId();
-  const myClasses = DB.classes().filter(c=>c.lecturerId===user.id);
-  const groups = cid ? DB.groupsByClass(cid) : DB.groups().filter(g=>myClasses.some(c=>c.id===g.classId));
-  let reports = DB.reports().filter(r=>groups.some(g=>g.id===r.groupId));
-  const week = currentWeek(cid);
+  let fStatus = 'all', fGroup = 'all', fWeek = 'all';
+  let search = '';
 
-  let fStatus='all', fGroup='all', fWeek='all';
-  let search='';
-
-  function innerRender() {
-    let filtered = reports;
-    if (fStatus!=='all') filtered = filtered.filter(r=>r.status===fStatus);
-    if (fGroup!=='all')  filtered = filtered.filter(r=>r.groupId===fGroup);
-    if (fWeek!=='all')   filtered = filtered.filter(r=>r.week===parseInt(fWeek));
-    if (search) filtered = filtered.filter(r=>{
-      const g=DB.findGroup(r.groupId);
-      return g?.name.toLowerCase().includes(search.toLowerCase())||r.summary?.toLowerCase().includes(search.toLowerCase());
-    });
-    filtered.sort((a,b)=>new Date(b.submittedAt)-new Date(a.submittedAt));
-
-    const pending = reports.filter(r=>r.status==='submitted').length;
-    const graded  = reports.filter(r=>r.status==='graded').length;
-
+  const tbody = document.getElementById('reports-tbody');
+  if (!tbody) {
     el.innerHTML = `
       <div class="page-header-row">
-        <div><h1>📋 Báo cáo tuần</h1><p class="page-desc">Quản lý và chấm điểm báo cáo</p></div>
+        <div><h1>📋 Báo cáo tuần</h1><p class="page-desc" id="report-page-desc">Quản lý và chấm điểm báo cáo</p></div>
       </div>
-      <div class="stat-grid" style="grid-template-columns:repeat(4,1fr)">
-        <div class="stat-card"><div class="stat-icon si-black">📋</div><div><div class="stat-val">${reports.length}</div><div class="stat-lbl">Tổng báo cáo</div></div></div>
-        <div class="stat-card"><div class="stat-icon si-gray">⏳</div><div><div class="stat-val" style="${pending>0?'color:var(--warning)':''}">${pending}</div><div class="stat-lbl">Chờ chấm</div></div></div>
-        <div class="stat-card"><div class="stat-icon si-gray">✅</div><div><div class="stat-val" style="color:var(--success)">${graded}</div><div class="stat-lbl">Đã chấm</div></div></div>
-        <div class="stat-card"><div class="stat-icon si-white">📅</div><div><div class="stat-val">${week}</div><div class="stat-lbl">Tuần hiện tại</div></div></div>
-      </div>
+      <div id="report-stats-wrap" class="stat-grid" style="grid-template-columns:repeat(4,1fr);margin-bottom:20px"></div>
 
       <div class="card" style="margin-bottom:16px">
         <div class="flex gap-3 flex-wrap items-center">
-          <input class="form-control" id="s-search" placeholder="🔍 Tìm kiếm..." style="flex:1;min-width:180px" value="${search}" oninput="handleSearch(this.value)"/>
-          <select class="form-control" id="s-group" style="min-width:140px" onchange="handleGroupF(this.value)">
-            <option value="all">Tất cả nhóm</option>
-            ${groups.map(g=>`<option value="${g.id}" ${fGroup===g.id?'selected':''}>${g.name}</option>`).join('')}
-          </select>
-          <select class="form-control" id="s-status" style="min-width:130px" onchange="handleStatusF(this.value)">
+          <input class="form-control" id="s-search" placeholder="🔍 Tìm kiếm theo tên nhóm, nội dung báo cáo..." style="flex:1;min-width:180px" autocomplete="off"/>
+          <select class="form-control" id="s-group" style="min-width:140px"></select>
+          <select class="form-control" id="s-status" style="min-width:130px">
             <option value="all">Tất cả TT</option>
-            <option value="submitted" ${fStatus==='submitted'?'selected':''}>Chờ chấm</option>
-            <option value="graded" ${fStatus==='graded'?'selected':''}>Đã chấm</option>
+            <option value="submitted">Chờ chấm</option>
+            <option value="graded">Đã chấm</option>
           </select>
-          <select class="form-control" id="s-week" style="min-width:110px" onchange="handleWeekF(this.value)">
+          <select class="form-control" id="s-week" style="min-width:110px">
             <option value="all">Tất cả tuần</option>
-            ${Array.from({length:16},(_,i)=>`<option value="${i+1}" ${fWeek==i+1?'selected':''}>Tuần ${i+1}</option>`).join('')}
+            ${Array.from({length:16},(_,i)=>`<option value="${i+1}">Tuần ${i+1}</option>`).join('')}
           </select>
         </div>
       </div>
@@ -163,42 +137,110 @@ function renderGV(el) {
       <div class="table-wrap">
         <table>
           <thead><tr><th>Nhóm</th><th>Tuần</th><th>Nội dung</th><th>File đính kèm</th><th>Thời gian nộp</th><th>Trạng thái</th><th>Điểm</th><th></th></tr></thead>
-          <tbody>
-            ${filtered.length===0?`<tr><td colspan="8"><div class="empty"><div class="empty-icon">📭</div><p>Không có báo cáo nào</p></div></td></tr>`:
-            filtered.map(r=>{
-              const g=DB.findGroup(r.groupId);
-              return `<tr>
-                <td><div class="font-semibold">${g?.name}</div><div class="td-muted">${g?.project?.slice(0,25)}…</div></td>
-                <td><span class="badge badge-gray">Tuần ${r.week}</span></td>
-                <td><div style="max-width:200px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-size:12px">${r.summary}</div></td>
-                <td>${(r.files||[]).map(f=>`<span class="chip" style="margin:2px">${fileIcon(f.name)} ${f.name.split('.').pop().toUpperCase()}</span>`).join('')||'<span class="text-muted text-xs">—</span>'}</td>
-                <td class="td-muted">${fmtDateTime(r.submittedAt)}</td>
-                <td>${r.status==='graded'?'<span class="badge badge-success">✅ Đã chấm</span>':'<span class="badge badge-warning">⏳ Chờ chấm</span>'}</td>
-                <td>${r.grade!==null&&r.grade!==undefined?`<span class="font-bold ${scoreClass(r.grade)}">${r.grade}</span>`:'<span class="text-muted">—</span>'}</td>
-                <td>
-                  <div class="flex gap-1">
-                    <button class="btn btn-ghost btn-sm" onclick="viewReport('${r.id}')">👁</button>
-                    <button class="btn ${r.status==='graded'?'btn-warning':'btn-success'} btn-sm" onclick="openGrade('${r.id}')">✍️</button>
-                  </div>
-                </td>
-              </tr>`;
-            }).join('')}
-          </tbody>
+          <tbody id="reports-tbody"></tbody>
         </table>
-      </div>`;
+      </div>
+    `;
 
-    // Re-bind handlers  
-    document.getElementById('s-search').oninput = e => { search=e.target.value; innerRender(); };
-    document.getElementById('s-group').onchange  = e => { fGroup=e.target.value; innerRender(); };
-    document.getElementById('s-status').onchange = e => { fStatus=e.target.value; innerRender(); };
-    document.getElementById('s-week').onchange   = e => { fWeek=e.target.value; innerRender(); };
+    // Gắn sự kiện CHỈ 1 LẦN, không bao giờ render lại thẻ input nên không bao giờ bị mất focus
+    const sInput = document.getElementById('s-search');
+    sInput.addEventListener('input', e => {
+      search = e.target.value;
+      updateReportsTable();
+    });
+    document.getElementById('s-group').addEventListener('change', e => {
+      fGroup = e.target.value;
+      updateReportsTable();
+    });
+    document.getElementById('s-status').addEventListener('change', e => {
+      fStatus = e.target.value;
+      updateReportsTable();
+    });
+    document.getElementById('s-week').addEventListener('change', e => {
+      fWeek = e.target.value;
+      updateReportsTable();
+    });
   }
 
-  window.handleSearch = v => { search=v; innerRender(); };
-  window.handleGroupF = v => { fGroup=v; innerRender(); };
-  window.handleStatusF= v => { fStatus=v; innerRender(); };
-  window.handleWeekF  = v => { fWeek=v; innerRender(); };
-  innerRender();
+  function updateReportsTable() {
+    const cid = DB.curClassId();
+    const myClasses = DB.classes().filter(c => c.lecturerId === user.id);
+    const groups = cid ? DB.groupsByClass(cid) : DB.groups().filter(g => myClasses.some(c => c.id === g.classId));
+    let reports = DB.reports().filter(r => groups.some(g => g.id === r.groupId));
+    const week = currentWeek(cid);
+
+    // Cập nhật select nhóm
+    const grpSel = document.getElementById('s-group');
+    if (grpSel) {
+      const curVal = fGroup;
+      grpSel.innerHTML = '<option value="all">Tất cả nhóm</option>' +
+        groups.map(g => `<option value="${g.id}" ${curVal === g.id ? 'selected' : ''}>${g.name}</option>`).join('');
+    }
+
+    let filtered = reports;
+    if (fStatus !== 'all') filtered = filtered.filter(r => r.status === fStatus);
+    if (fGroup !== 'all')  filtered = filtered.filter(r => r.groupId === fGroup);
+    if (fWeek !== 'all')   filtered = filtered.filter(r => r.week === parseInt(fWeek));
+    if (search) {
+      const q = search.toLowerCase().trim();
+      filtered = filtered.filter(r => {
+        const g = DB.findGroup(r.groupId);
+        return (g?.name || '').toLowerCase().includes(q) ||
+          (g?.project || '').toLowerCase().includes(q) ||
+          (r.summary || '').toLowerCase().includes(q);
+      });
+    }
+    filtered.sort((a,b) => new Date(b.submittedAt) - new Date(a.submittedAt));
+
+    const pending = reports.filter(r => r.status === 'submitted').length;
+    const graded  = reports.filter(r => r.status === 'graded').length;
+
+    // Cập nhật stats
+    const statWrap = document.getElementById('report-stats-wrap');
+    if (statWrap) {
+      statWrap.innerHTML = `
+        <div class="stat-card"><div class="stat-icon si-black">📋</div><div><div class="stat-val">${reports.length}</div><div class="stat-lbl">Tổng báo cáo</div></div></div>
+        <div class="stat-card"><div class="stat-icon si-gray">⏳</div><div><div class="stat-val" style="${pending>0?'color:var(--warning)':''}">${pending}</div><div class="stat-lbl">Chờ chấm</div></div></div>
+        <div class="stat-card"><div class="stat-icon si-gray">✅</div><div><div class="stat-val" style="color:var(--success)">${graded}</div><div class="stat-lbl">Đã chấm</div></div></div>
+        <div class="stat-card"><div class="stat-icon si-white">📅</div><div><div class="stat-val">${week}</div><div class="stat-lbl">Tuần hiện tại</div></div></div>
+      `;
+    }
+
+    // Cập nhật tbody
+    const rTbody = document.getElementById('reports-tbody');
+    if (!rTbody) return;
+
+    if (filtered.length === 0) {
+      rTbody.innerHTML = `<tr><td colspan="8"><div class="empty"><div class="empty-icon">📭</div><p>Không có báo cáo nào phù hợp</p></div></td></tr>`;
+      return;
+    }
+
+    rTbody.innerHTML = filtered.map(r => {
+      const g = DB.findGroup(r.groupId);
+      return `<tr>
+        <td><div class="font-semibold">${g?.name}</div><div class="td-muted">${g?.project?.slice(0,25) || ''}…</div></td>
+        <td><span class="badge badge-gray">Tuần ${r.week}</span></td>
+        <td><div style="max-width:200px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-size:12px">${r.summary || '—'}</div></td>
+        <td>${(r.files||[]).map(f=>`<span class="chip" style="margin:2px">${fileIcon(f.name)} ${f.name.split('.').pop().toUpperCase()}</span>`).join('')||'<span class="text-muted text-xs">—</span>'}</td>
+        <td class="td-muted">${fmtDateTime(r.submittedAt)}</td>
+        <td>${r.status==='graded'?'<span class="badge badge-success">✅ Đã chấm</span>':'<span class="badge badge-warning">⏳ Chờ chấm</span>'}</td>
+        <td>${r.grade!==null&&r.grade!==undefined?`<span class="font-bold ${scoreClass(r.grade)}">${r.grade}</span>`:'<span class="text-muted">—</span>'}</td>
+        <td>
+          <div class="flex gap-1">
+            <button class="btn btn-ghost btn-sm" onclick="viewReport('${r.id}')" title="Xem chi tiết báo cáo">👁</button>
+            <button class="btn ${r.status==='graded'?'btn-warning':'btn-success'} btn-sm" onclick="openGrade('${r.id}')" title="Chấm điểm">✍️</button>
+          </div>
+        </td>
+      </tr>`;
+    }).join('');
+  }
+
+  window.handleSearch = v => { search = v; updateReportsTable(); };
+  window.handleGroupF = v => { fGroup = v; updateReportsTable(); };
+  window.handleStatusF = v => { fStatus = v; updateReportsTable(); };
+  window.handleWeekF = v => { fWeek = v; updateReportsTable(); };
+
+  updateReportsTable();
 }
 
 /* ════ SINH VIÊN / NHÓM TRƯỞNG ════ */

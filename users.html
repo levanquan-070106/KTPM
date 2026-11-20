@@ -338,13 +338,14 @@ function updateTableAndFilters() {
     users = users.filter(u => u.role === 'giaovien' || DB.userClassId(u) === filterClassId);
   }
   if (searchText) {
-    const q = searchText.toLowerCase();
+    const q = searchText.toLowerCase().trim();
     users = users.filter(u => {
       const group = DB.groupOfUser(u.id);
       return u.name.toLowerCase().includes(q) ||
         u.email.toLowerCase().includes(q) ||
         (u.mssv && u.mssv.includes(q)) ||
-        (group && group.name.toLowerCase().includes(q));
+        (group && group.name.toLowerCase().includes(q)) ||
+        (group && (group.project || '').toLowerCase().includes(q));
     });
   }
 
