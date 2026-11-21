@@ -388,7 +388,10 @@ function updateTableAndFilters() {
       <td>
         ${u.role === 'giaovien'
           ? '<span class="text-xs text-muted">Giảng viên</span>'
-          : (cls ? `<span class="badge badge-outline">🏫 ${cls.name}</span>` : '<span class="badge badge-warning" style="font-weight:700">⏳ Chờ duyệt lớp</span>')}
+          : (cls ? `<span class="badge badge-outline">🏫 ${cls.name}</span>` : 
+             (u.requestedClassId && DB.findClass(u.requestedClassId) 
+               ? `<span class="badge badge-warning" style="font-weight:700">⏳ Xin vào: ${DB.findClass(u.requestedClassId).name}</span>`
+               : '<span class="badge badge-warning" style="font-weight:700">⏳ Chờ duyệt lớp</span>'))}
       </td>
       <td>
         ${group ? `<span class="chip font-bold">${group.name}</span>` : '<span class="text-muted">Chưa có nhóm</span>'}
@@ -430,7 +433,7 @@ window.quickApproveUser = function(uidVal) {
   const u = DB.findUserById(uidVal);
   if (!u) return;
   const classes = DB.classes();
-  const defClassId = (filterClassId !== 'all' && filterClassId !== 'unassigned' ? filterClassId : null) || DB.curClassId() || classes[0]?.id || 'c1';
+  const defClassId = u.requestedClassId || (filterClassId !== 'all' && filterClassId !== 'unassigned' ? filterClassId : null) || DB.curClassId() || classes[0]?.id || 'c1';
   const clsObj = DB.findClass(defClassId);
   const clsName = clsObj ? clsObj.name : defClassId;
   if (confirm(`Duyệt sinh viên "${u.name}" (${u.email}) vào lớp "${clsName}"?`)) {

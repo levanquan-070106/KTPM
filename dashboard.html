@@ -120,20 +120,49 @@ function renderSV(el) {
 
   // Trường hợp 1: Tài khoản Google mới tạo, CHƯA được xác nhận qua file Excel hoặc Giảng viên/Nhóm trưởng
   if (!isConfirmed) {
+    const classes = DB.classes().filter(c => c.active !== false);
+    const reqCls = user.requestedClassId ? DB.findClass(user.requestedClassId) : null;
     el.innerHTML = `
       <div class="card" style="max-width:760px;margin:30px auto;padding:36px 28px;text-align:center">
         <div style="width:68px;height:68px;background:#fef3c7;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:32px;margin:0 auto 16px">⏳</div>
         <h2 style="font-size:22px;font-weight:800;color:var(--gray-900);margin-bottom:8px">Tài khoản Google đang chờ xác nhận</h2>
-        <p style="font-size:14px;color:var(--text-secondary);line-height:1.6;margin-bottom:24px">
+        <p style="font-size:14px;color:var(--text-secondary);line-height:1.6;margin-bottom:20px">
           Xin chào <strong>${user.name}</strong> (<code style="background:var(--gray-100);padding:2px 6px;border-radius:4px;font-family:monospace">${user.email}</code>),<br/>
           Tài khoản của bạn đã được đăng ký thành công qua Google. Tuy nhiên, bạn <strong>chưa được xác nhận vào Lớp học hoặc Nhóm dự án</strong> nào nên tạm thời chưa thể thực hiện các thao tác trên hệ thống.
         </p>
 
+        <!-- Form gửi thông tin xin vào Lớp học -->
+        <div style="background:#fff;border:1px solid var(--border);border-radius:var(--radius-md);padding:20px;text-align:left;margin-bottom:20px;box-shadow:0 1px 3px rgba(0,0,0,0.05)">
+          <div style="font-weight:700;color:var(--gray-900);margin-bottom:12px;font-size:15px">📝 Đăng ký thông tin xin vào Lớp học:</div>
+          ${reqCls ? `
+            <div style="padding:10px 14px;background:#ecfdf5;border:1px solid #a7f3d0;border-radius:6px;color:#065f46;font-size:13px;margin-bottom:14px">
+              ✅ Bạn đã gửi yêu cầu xin vào lớp <strong>${reqCls.name}</strong> (MSSV: <strong>${user.mssv || 'Chưa nhập'}</strong>). Vui lòng chờ Giảng viên phê duyệt hoặc báo Nhóm trưởng thêm bạn vào nhóm!
+            </div>
+          ` : ''}
+          <form onsubmit="submitClassRequest(event)">
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:14px">
+              <div>
+                <label style="font-size:12px;font-weight:600;display:block;margin-bottom:5px">Mã số sinh viên (MSSV) <span style="color:red">*</span></label>
+                <input class="form-control" id="req-mssv" placeholder="VD: 202414288" value="${user.mssv || ''}" required/>
+              </div>
+              <div>
+                <label style="font-size:12px;font-weight:600;display:block;margin-bottom:5px">Chọn Lớp học của bạn <span style="color:red">*</span></label>
+                <select class="form-control" id="req-class" required>
+                  ${classes.map(c => `<option value="${c.id}" ${c.id === user.requestedClassId ? 'selected' : ''}>${c.name} (${c.semester})</option>`).join('')}
+                </select>
+              </div>
+            </div>
+            <button type="submit" class="btn btn-primary btn-sm" id="btn-submit-req">
+              ${reqCls ? '🔄 Cập nhật yêu cầu vào lớp' : '🚀 Gửi yêu cầu xin vào lớp'}
+            </button>
+          </form>
+        </div>
+
         <div style="background:var(--gray-50);border:1px solid var(--border);border-radius:var(--radius-md);padding:20px;text-align:left;margin-bottom:24px;font-size:13px;line-height:1.8">
           <div style="font-weight:700;color:var(--gray-900);margin-bottom:8px">📌 Để kích hoạt tài khoản của bạn, vui lòng:</div>
-          <div style="margin-bottom:6px">1️⃣ <strong>Xác nhận qua file Excel:</strong> Chờ Giảng viên tải file Excel danh sách lớp lên hệ thống (hệ thống sẽ tự nhận diện Gmail của bạn, gán đúng Lớp, đúng Nhóm và Tên đề tài).</div>
-          <div style="margin-bottom:6px">2️⃣ <strong>Giảng viên duyệt trực tiếp:</strong> Giảng viên có thể vào mục <em>Quản lý tài khoản</em> và gán bạn vào lớp học tương ứng.</div>
-          <div>3️⃣ <strong>Nhóm trưởng thêm vào nhóm:</strong> Nhóm trưởng của bạn có thể vào mục <em>Thành viên nhóm</em> và thêm bạn vào nhóm dự án.</div>
+          <div style="margin-bottom:6px">1️⃣ <strong>Gửi MSSV & Chọn Lớp ở form trên:</strong> Hệ thống sẽ tự nhận diện nếu MSSV của bạn đã có trong danh sách lớp của Thầy, hoặc gửi thông báo để Thầy duyệt ngay.</div>
+          <div style="margin-bottom:6px">2️⃣ <strong>Nhóm trưởng thêm vào nhóm:</strong> Nhóm trưởng của bạn có thể vào mục <em>Thành viên nhóm</em> và thêm bạn vào nhóm dự án.</div>
+          <div>3️⃣ <strong>Giảng viên duyệt trực tiếp:</strong> Giảng viên có thể vào mục <em>Quản lý tài khoản</em> và bấm duyệt bạn vào lớp học tương ứng.</div>
         </div>
 
         <div class="flex gap-2 justify-center flex-wrap">
@@ -243,6 +272,37 @@ function renderSV(el) {
       </div>
     </div>`;
 }
+
+window.submitClassRequest = async function(e) {
+  e.preventDefault();
+  const mssv = document.getElementById('req-mssv').value.trim();
+  const classId = document.getElementById('req-class').value;
+  if (!mssv || !classId) return;
+
+  const btn = document.getElementById('btn-submit-req');
+  if (btn) btn.innerHTML = '⏳ Đang xử lý...';
+
+  // 1. Kiểm tra xem MSSV này có trùng với sinh viên nào trong lớp đã có sẵn chưa
+  const students = DB.studentsByClass(classId);
+  const matchedStudent = students.find(s => s.mssv && s.mssv.trim() === mssv);
+
+  if (matchedStudent) {
+    // Tự động gộp / liên kết tài khoản luôn!
+    matchedStudent.originalEmail = user.email;
+    DB.updateUser(matchedStudent);
+    DB.setSession(matchedStudent);
+    showToast(`✅ Đã nhận diện thành công sinh viên ${matchedStudent.name}! Đang chuyển vào lớp...`, 'success');
+    setTimeout(() => location.reload(), 1000);
+    return;
+  }
+
+  // 2. Nếu là sinh viên mới, lưu MSSV và requestedClassId để Giảng viên nhìn thấy rõ lớp xin vào
+  const upd = { ...user, mssv, requestedClassId: classId };
+  DB.updateUser(upd);
+  DB.setSession(upd);
+  showToast('✅ Đã gửi yêu cầu vào lớp thành công! Vui lòng chờ Giảng viên hoặc Nhóm trưởng phê duyệt.', 'success');
+  setTimeout(() => location.reload(), 1000);
+};
 
 render();
 </script>
