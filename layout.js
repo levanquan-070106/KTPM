@@ -126,8 +126,8 @@ function buildTopbar(user, title) {
       <div class="topbar-title">${title}</div>
       ${classEl}
       <div class="topbar-actions">
-        <a href="guide.html" class="btn btn-secondary btn-sm" style="display:inline-flex;align-items:center;gap:4px;text-decoration:none;font-weight:600;font-size:12px;padding:6px 11px">
-          📖 Giới thiệu & Hướng dẫn
+        <a href="guide.html" class="btn btn-secondary btn-sm" style="display:inline-flex;align-items:center;text-decoration:none;font-weight:600;font-size:12px;padding:6px 11px">
+          Giới thiệu & Hướng dẫn
         </a>
         <button class="topbar-icon-btn" title="Thông báo">🔔</button>
         <div class="avatar" style="background:${avatarBg(user.name)};cursor:pointer" title="${user.name}">${getInitials(user.name)}</div>
