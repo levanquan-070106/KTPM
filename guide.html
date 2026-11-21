@@ -1,0 +1,359 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width,initial-scale=1"/>
+  <title>Giới thiệu & Hướng dẫn sử dụng – KTPMUD</title>
+  <link rel="stylesheet" href="style.css"/>
+  <style>
+    .guide-wrap { max-width: 960px; margin: 0 auto; padding-bottom: 60px; }
+    .guide-hero {
+      background: #111827; color: #fff; padding: 36px 32px; border-radius: var(--radius-lg);
+      margin-bottom: 28px; position: relative; overflow: hidden;
+    }
+    .guide-hero h1 { font-size: 26px; font-weight: 800; margin-bottom: 8px; color: #fff; }
+    .guide-hero p { font-size: 14px; color: #9ca3af; line-height: 1.6; max-width: 760px; }
+    .guide-meta {
+      display: flex; gap: 20px; flex-wrap: wrap; margin-top: 20px; padding-top: 18px;
+      border-top: 1px solid rgba(255,255,255,0.12); font-size: 13px; color: #d1d5db;
+    }
+    .guide-meta strong { color: #fff; }
+
+    .guide-nav-tabs {
+      display: flex; gap: 8px; margin-bottom: 24px; border-bottom: 1px solid var(--border);
+      padding-bottom: 8px; overflow-x: auto;
+    }
+    .guide-tab-btn {
+      padding: 8px 16px; border-radius: var(--radius-sm); font-size: 13px; font-weight: 600;
+      background: none; border: none; cursor: pointer; color: var(--text-secondary); transition: all .15s;
+    }
+    .guide-tab-btn:hover { background: var(--gray-100); color: var(--gray-900); }
+    .guide-tab-btn.active { background: var(--gray-900); color: #fff; }
+
+    .guide-card {
+      background: #fff; border: 1px solid var(--border); border-radius: var(--radius-md);
+      padding: 24px; margin-bottom: 20px; box-shadow: 0 1px 3px rgba(0,0,0,0.04);
+    }
+    .guide-card h2 { font-size: 18px; font-weight: 800; margin-bottom: 12px; display: flex; align-items: center; gap: 8px; }
+    .guide-card h3 { font-size: 15px; font-weight: 700; margin: 16px 0 8px; color: var(--gray-800); }
+    .guide-card p, .guide-card li { font-size: 13.5px; color: var(--text-secondary); line-height: 1.7; }
+    .guide-card ul, .guide-card ol { padding-left: 20px; margin-bottom: 12px; }
+
+    .step-box {
+      display: flex; gap: 14px; margin-bottom: 16px; padding: 14px;
+      background: var(--gray-50); border: 1px solid var(--border); border-radius: var(--radius-sm);
+    }
+    .step-num {
+      width: 28px; height: 28px; border-radius: 50%; background: #111827; color: #fff;
+      display: flex; align-items: center; justify-content: center; font-weight: 800; font-size: 12px; flex-shrink: 0;
+    }
+    .step-content { flex: 1; }
+    .step-title { font-weight: 700; font-size: 13.5px; margin-bottom: 4px; color: var(--gray-900); }
+    .step-desc { font-size: 13px; color: var(--text-secondary); line-height: 1.5; }
+
+    .feature-badge {
+      display: inline-flex; align-items: center; gap: 4px; padding: 4px 10px;
+      background: var(--gray-100); border-radius: 20px; font-size: 12px; font-weight: 600; margin: 3px;
+    }
+
+    .alert-banner {
+      background: #fffbeb; border: 1px solid #fde68a; border-radius: var(--radius-sm);
+      padding: 14px 18px; margin-bottom: 20px; font-size: 13px; line-height: 1.6; color: #92400e;
+    }
+  </style>
+</head>
+<body>
+<div id="app"></div>
+<div id="toast-stack" class="toast-stack"></div>
+
+<script src="data.js"></script>
+<script src="layout.js"></script>
+<script>
+const user = DB.session();
+
+function render() {
+  const container = document.getElementById('page-content') || document.getElementById('app');
+
+  const content = `
+    <div class="guide-wrap">
+      <!-- Hero Banner -->
+      <div class="guide-hero">
+        <div style="font-size:12px;font-weight:700;color:#93c5fd;letter-spacing:1px;text-transform:uppercase;margin-bottom:6px">
+          Trường Điện - Điện tử · Đại học Bách khoa Hà Nội
+        </div>
+        <h1>Hệ Thống Quản Lý Tiến Độ Project – KTPMUD</h1>
+        <p>
+          Nền tảng hỗ trợ toàn diện quy trình thực hiện đồ án môn học Kỹ thuật phần mềm ứng dụng:
+          quản lý đa lớp học, phân công công việc qua bảng Kanban, nộp báo cáo tuần đính kèm tài liệu,
+          nghiệm thu sản phẩm cuối kỳ và tự động đo lường tỷ lệ đóng góp của từng sinh viên.
+        </p>
+        <div class="guide-meta">
+          <div>👨‍🏫 <strong>GVHD:</strong> TS. Hoàng Quang Huy</div>
+          <div>👥 <strong>Nhóm thực hiện:</strong> Nhóm 19</div>
+          <div>🎓 <strong>Sinh viên:</strong> Lê Văn Quân (202414324) – Đỗ Xuân Nguyện (202414288)</div>
+        </div>
+      </div>
+
+      <!-- Alert quan trọng về tài khoản Google mới -->
+      <div class="alert-banner">
+        <strong>🔐 Cơ chế tài khoản Google & Xác nhận vào lớp:</strong><br/>
+        Hệ thống cho phép <strong>bất kỳ ai cũng có thể đăng ký / đăng nhập qua Google</strong>. Tuy nhiên, tài khoản Google mới tạo sẽ ở trạng thái <em>chưa phân lớp</em> và chưa thể thao tác gì. Tài khoản sẽ được kích hoạt ngay khi:
+        <br/>1. <strong>Giảng viên import file Excel</strong> danh sách lớp học (tự động nhận diện Gmail, gắn lớp, nhóm và đề tài).
+        <br/>2. <strong>Giảng viên duyệt trực tiếp</strong> tại mục <em>Quản lý tài khoản</em>.
+        <br/>3. <strong>Nhóm trưởng thêm vào nhóm</strong> tại mục <em>Thành viên nhóm</em>.
+      </div>
+
+      <!-- Navigation Tabs -->
+      <div class="guide-nav-tabs">
+        <button class="guide-tab-btn active" onclick="switchGuideTab('overview')">🌟 Tổng quan hệ thống</button>
+        <button class="guide-tab-btn" onclick="switchGuideTab('gv')">👨‍🏫 Hướng dẫn Giảng viên</button>
+        <button class="guide-tab-btn" onclick="switchGuideTab('nt')">👑 Hướng dẫn Nhóm trưởng</button>
+        <button class="guide-tab-btn" onclick="switchGuideTab('sv')">🎓 Hướng dẫn Sinh viên</button>
+        <button class="guide-tab-btn" onclick="switchGuideTab('workflow')">📅 Quy trình 16 tuần</button>
+      </div>
+
+      <!-- TAB 1: TỔNG QUAN -->
+      <div id="tab-overview" class="guide-tab-content">
+        <div class="guide-card">
+          <h2>🎯 Mục tiêu & Vấn đề giải quyết</h2>
+          <p>
+            Trong quá trình làm đồ án nhóm dài tuần, sinh viên thường gặp khó khăn trong việc phân chia việc rõ ràng,
+            dẫn đến tình trạng chồng chéo hoặc đóng góp không đồng đều. Về phía Giảng viên, việc theo dõi quá trình
+            thường chỉ dựa trên kết quả cuối cùng mà thiếu đi công cụ đo lường mức độ tham gia thực tế của từng cá nhân.
+          </p>
+          <div style="margin-top:14px">
+            <span class="feature-badge">📋 Quản lý đa lớp học</span>
+            <span class="feature-badge">⬜ Bảng Kanban kéo thả</span>
+            <span class="feature-badge">📊 Đo % đóng góp cá nhân</span>
+            <span class="feature-badge">📝 Báo cáo tuần & đính kèm file</span>
+            <span class="feature-badge">📦 Nghiệm thu sản phẩm cuối kỳ</span>
+            <span class="feature-badge">📥 Xuất file điểm Excel (.xlsx)</span>
+            <span class="feature-badge">🔐 Đăng nhập 1-chạm Google OAuth</span>
+          </div>
+        </div>
+
+        <div class="guide-card">
+          <h2>👥 Các vai trò người dùng trong hệ thống</h2>
+          <div class="step-box">
+            <div class="step-num">GV</div>
+            <div class="step-content">
+              <div class="step-title">Giảng viên hướng dẫn (Lecturer)</div>
+              <div class="step-desc">Tạo và quản lý các lớp học, import danh sách Excel lớp học (hệ thống tự động sinh tài khoản, gom nhóm và ghép đề tài), theo dõi tiến độ tuần, chấm điểm báo cáo và sản phẩm cuối kỳ, xuất bảng điểm ra Excel.</div>
+            </div>
+          </div>
+          <div class="step-box">
+            <div class="step-num">NT</div>
+            <div class="step-content">
+              <div class="step-title">Nhóm trưởng sinh viên (Team Leader)</div>
+              <div class="step-desc">Quản lý nhóm dự án, khởi tạo và giao việc trên bảng Kanban, nộp báo cáo tuần kèm tài liệu (Word, PowerPoint, PDF), nộp sản phẩm nghiệm thu cuối kỳ (Slide, Video, GitHub, Live Demo), duyệt thêm thành viên vào nhóm.</div>
+            </div>
+          </div>
+          <div class="step-box">
+            <div class="step-num">SV</div>
+            <div class="step-content">
+              <div class="step-title">Thành viên sinh viên (Team Member)</div>
+              <div class="step-desc">Đăng nhập tài khoản, cập nhật trạng thái thẻ task của bản thân (Todo ➔ Doing ➔ Review ➔ Done), xem % đóng góp cá nhân và điểm số đánh giá từ giảng viên.</div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- TAB 2: GIẢNG VIÊN -->
+      <div id="tab-gv" class="guide-tab-content" style="display:none">
+        <div class="guide-card">
+          <h2>👨‍🏫 Quy trình làm việc dành cho Giảng viên</h2>
+          
+          <div class="step-box">
+            <div class="step-num">1</div>
+            <div class="step-content">
+              <div class="step-title">Quản lý lớp học & Chuyển đổi lớp trên Topbar</div>
+              <div class="step-desc">Tại mục <strong>Lớp học</strong>, Giảng viên có thể tạo mới các lớp (K68A, K68B, KTPM sáng t4...). Thanh chọn lớp ở đầu trang (Topbar) cho phép lọc dữ liệu nhanh chóng theo từng lớp học cụ thể.</div>
+            </div>
+          </div>
+
+          <div class="step-box">
+            <div class="step-num">2</div>
+            <div class="step-content">
+              <div class="step-title">Import danh sách sinh viên tự động từ file Excel</div>
+              <div class="step-desc">Vào mục <strong>Tài khoản</strong> ➔ Bấm nút <strong>"📥 Import từ Excel"</strong> ➔ Kéo thả file Excel danh sách lớp. Hệ thống thông minh tự động đọc cột Gmail, so khớp chéo MSSV và Tên đề tài, tự gom nhóm và chọn sinh viên đầu tiên làm Nhóm trưởng.</div>
+            </div>
+          </div>
+
+          <div class="step-box">
+            <div class="step-num">3</div>
+            <div class="step-content">
+              <div class="step-title">Theo dõi tiến độ & Chấm báo cáo tuần</div>
+              <div class="step-desc">Vào mục <strong>Báo cáo tuần</strong>: Giảng viên xem danh sách báo cáo theo từng tuần, bấm <strong>👁 Xem</strong> để đọc nội dung và file đính kèm trực tiếp, bấm <strong>✍️ Chấm điểm</strong> để cho điểm và nhận xét cho nhóm.</div>
+            </div>
+          </div>
+
+          <div class="step-box">
+            <div class="step-num">4</div>
+            <div class="step-content">
+              <div class="step-title">Nghiệm thu Sản phẩm cuối kỳ & Xuất bảng điểm</div>
+              <div class="step-desc">Vào mục <strong>Sản phẩm cuối kỳ</strong> để kiểm tra GitHub, Demo, Slide nghiệm thu của từng nhóm và chấm điểm. Sau đó vào <strong>Bảng điểm</strong> hoặc <strong>Sinh viên</strong> bấm <strong>"📥 Xuất Excel (.xlsx)"</strong> để tải bảng điểm chuẩn.</div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- TAB 3: NHÓM TRƯỞNG -->
+      <div id="tab-nt" class="guide-tab-content" style="display:none">
+        <div class="guide-card">
+          <h2>👑 Quy trình làm việc dành cho Nhóm trưởng</h2>
+
+          <div class="step-box">
+            <div class="step-num">1</div>
+            <div class="step-content">
+              <div class="step-title">Quản lý thông tin nhóm & Thành viên</div>
+              <div class="step-desc">Vào mục <strong>Nhóm của tôi</strong> để cập nhật tên đề tài, công nghệ sử dụng. Vào mục <strong>Thành viên</strong> để duyệt thêm bạn học vào nhóm dự án.</div>
+            </div>
+          </div>
+
+          <div class="step-box">
+            <div class="step-num">2</div>
+            <div class="step-content">
+              <div class="step-title">Giao việc trên bảng Kanban Board</div>
+              <div class="step-desc">Vào mục <strong>Kanban Board</strong> ➔ Bấm <strong>"➕ Thêm công việc"</strong> ➔ Nhập tên task, mô tả, chọn thành viên thực hiện và đặt hạn nộp (deadline). Thẻ task sẽ xuất hiện ngay trên bảng của bạn được giao.</div>
+            </div>
+          </div>
+
+          <div class="step-box">
+            <div class="step-num">3</div>
+            <div class="step-content">
+              <div class="step-title">Nộp báo cáo tuần định kỳ</div>
+              <div class="step-desc">Vào mục <strong>Báo cáo tuần</strong> ➔ Bấm <strong>"📝 Nộp báo cáo tuần"</strong> ➔ Tóm tắt tiến độ, đính kèm file báo cáo (.docx, .pptx, .pdf). Khi Giảng viên chấm, điểm số và nhận xét sẽ hiển thị ngay tại đây.</div>
+            </div>
+          </div>
+
+          <div class="step-box">
+            <div class="step-num">4</div>
+            <div class="step-content">
+              <div class="step-title">Nộp sản phẩm cuối kỳ</div>
+              <div class="step-desc">Vào mục <strong>Sản phẩm cuối kỳ</strong> ➔ Bấm <strong>"📤 Nộp sản phẩm ngay"</strong> ➔ Điền mô tả sản phẩm, link GitHub, link Live Demo, Video thuyết trình và kéo thả đính kèm Slide/Tài liệu nghiệm thu.</div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- TAB 4: SINH VIÊN -->
+      <div id="tab-sv" class="guide-tab-content" style="display:none">
+        <div class="guide-card">
+          <h2>🎓 Quy trình làm việc dành cho Thành viên sinh viên</h2>
+
+          <div class="step-box">
+            <div class="step-num">1</div>
+            <div class="step-content">
+              <div class="step-title">Đăng nhập hệ thống</div>
+              <div class="step-desc">Bấm nút <strong>"Đăng nhập bằng Google"</strong> với tài khoản Gmail của bạn (nếu đã có trong danh sách lớp) hoặc đăng nhập bằng Email và mật khẩu mặc định <code>123456</code>.</div>
+            </div>
+          </div>
+
+          <div class="step-box">
+            <div class="step-num">2</div>
+            <div class="step-content">
+              <div class="step-title">Thực hiện và Cập nhật trạng thái công việc</div>
+              <div class="step-desc">Vào mục <strong>Kanban Board</strong>: Bạn kéo thả thẻ việc của mình từ <strong>Todo</strong> (Cần làm) ➔ <strong>Doing</strong> (Đang làm) ➔ <strong>Review</strong> (Chờ kiểm tra) ➔ <strong>Done</strong> (Đã xong).</div>
+            </div>
+          </div>
+
+          <div class="step-box">
+            <div class="step-num">3</div>
+            <div class="step-content">
+              <div class="step-title">Theo dõi mức độ đóng góp & Điểm số</div>
+              <div class="step-desc">Hệ thống tự động tính toán % công việc bạn đã hoàn thành và % đóng góp vào dự án chung. Vào mục <strong>Điểm số</strong> để xem bảng điểm quá trình, điểm báo cáo tuần và điểm tổng kết.</div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- TAB 5: QUY TRÌNH 16 TUẦN -->
+      <div id="tab-workflow" class="guide-tab-content" style="display:none">
+        <div class="guide-card">
+          <h2>📅 Lộ trình thực hiện môn học (16 tuần)</h2>
+          <div class="step-box">
+            <div class="step-num">1-3</div>
+            <div class="step-content">
+              <div class="step-title">Giai đoạn Khởi động & Khảo sát yêu cầu (Tuần 1 - 3)</div>
+              <div class="step-desc">Thành lập nhóm, chọn đề tài, khảo sát nhu cầu người dùng, viết tài liệu đặc tả yêu cầu phần mềm (SRS), tạo các task đầu tiên trên Kanban.</div>
+            </div>
+          </div>
+
+          <div class="step-box">
+            <div class="step-num">4-7</div>
+            <div class="step-content">
+              <div class="step-title">Giai đoạn Thiết kế kiến trúc & Giao diện (Tuần 4 - 7)</div>
+              <div class="step-desc">Thiết kế kiến trúc hệ thống, vẽ sơ đồ Use Case, ERD, Class Diagram, thiết kế Prototype UI/UX, nộp báo cáo tuần định kỳ.</div>
+            </div>
+          </div>
+
+          <div class="step-box">
+            <div class="step-num">8</div>
+            <div class="step-content">
+              <div class="step-title">Đánh giá Giữa kỳ (Tuần 8)</div>
+              <div class="step-desc">Giảng viên chấm điểm giữa kỳ dựa trên chất lượng tài liệu thiết kế và mức độ hoàn thành các nhiệm vụ trên Kanban.</div>
+            </div>
+          </div>
+
+          <div class="step-box">
+            <div class="step-num">9-14</div>
+            <div class="step-content">
+              <div class="step-title">Giai đoạn Lập trình & Kiểm thử (Tuần 9 - 14)</div>
+              <div class="step-desc">Hiện thực hóa các tính năng theo sprint, kiểm thử chức năng, sửa lỗi, cập nhật tiến độ công việc hàng tuần.</div>
+            </div>
+          </div>
+
+          <div class="step-box">
+            <div class="step-num">15-16</div>
+            <div class="step-content">
+              <div class="step-title">Nghiệm thu Sản phẩm & Chấm điểm Cuối kỳ (Tuần 15 - 16)</div>
+              <div class="step-desc">Nộp sản phẩm hoàn thiện (mã nguồn GitHub, demo trực tiếp, slide thuyết trình), bảo vệ đồ án, Giảng viên chấm điểm và xuất bảng điểm Excel.</div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div style="text-align:center;margin-top:30px">
+        <a href="dashboard.html" class="btn btn-primary" style="padding:10px 24px">⬅️ Quay lại Trang chủ</a>
+      </div>
+    </div>
+  `;
+
+  if (user) {
+    initPage('Giới thiệu & Hướng dẫn', 'guide');
+    const pContent = document.getElementById('page-content');
+    if (pContent) pContent.innerHTML = content;
+  } else {
+    // Nếu chưa đăng nhập, hiển thị header độc lập có nút Đăng nhập
+    container.innerHTML = `
+      <header style="background:#fff;border-bottom:1px solid var(--border);padding:14px 28px;display:flex;align-items:center;justify-content:between">
+        <div style="display:flex;align-items:center;gap:10px">
+          <span style="font-size:24px">📐</span>
+          <span style="font-weight:800;font-size:18px">KTPMUD</span>
+        </div>
+        <div style="margin-left:auto">
+          <a href="login.html" class="btn btn-primary btn-sm">🔑 Đăng nhập hệ thống</a>
+        </div>
+      </header>
+      <main style="padding:28px 16px;background:var(--bg);min-height:calc(100vh - 60px)">
+        ${content}
+      </main>
+    `;
+  }
+}
+
+window.switchGuideTab = function(tabId) {
+  document.querySelectorAll('.guide-tab-btn').forEach(b => b.classList.remove('active'));
+  document.querySelectorAll('.guide-tab-content').forEach(c => c.style.display = 'none');
+
+  const btn = event.target;
+  if (btn) btn.classList.add('active');
+
+  const target = document.getElementById('tab-' + tabId);
+  if (target) target.style.display = 'block';
+};
+
+render();
+</script>
+</body>
+</html>

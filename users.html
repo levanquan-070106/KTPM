@@ -301,6 +301,7 @@ function updateTableAndFilters() {
   }
 
   // Cập nhật bộ lọc lớp học
+  const unassignedCount = DB.users().filter(u => u.role !== 'giaovien' && !DB.userClassId(u)).length;
   const cfWrap = document.getElementById('class-filter-wrap');
   if (cfWrap) {
     cfWrap.innerHTML = `
@@ -313,6 +314,9 @@ function updateTableAndFilters() {
           🏫 ${c.name} (${cnt} SV)
         </button>`;
       }).join('')}
+      <button class="btn ${filterClassId === 'unassigned' ? 'btn-primary' : 'btn-secondary'} btn-sm" style="${unassignedCount > 0 ? 'border-color:var(--warning);color:var(--warning-dark)' : ''}" onclick="setClassFilter('unassigned')">
+        ⏳ Chờ duyệt lớp (${unassignedCount})
+      </button>
     `;
   }
 
@@ -334,7 +338,9 @@ function updateTableAndFilters() {
   if (filterRole !== 'all') {
     users = users.filter(u => u.role === filterRole);
   }
-  if (filterClassId !== 'all') {
+  if (filterClassId === 'unassigned') {
+    users = users.filter(u => u.role !== 'giaovien' && !DB.userClassId(u));
+  } else if (filterClassId !== 'all') {
     users = users.filter(u => u.role === 'giaovien' || DB.userClassId(u) === filterClassId);
   }
   if (searchText) {
@@ -381,7 +387,7 @@ function updateTableAndFilters() {
       <td>
         ${u.role === 'giaovien'
           ? '<span class="text-xs text-muted">Giảng viên</span>'
-          : (cls ? `<span class="badge badge-outline">🏫 ${cls.name}</span>` : '<span class="text-xs text-danger">Chưa chọn lớp</span>')}
+          : (cls ? `<span class="badge badge-outline">🏫 ${cls.name}</span>` : '<span class="badge badge-warning" style="font-weight:700">⏳ Chờ duyệt lớp</span>')}
       </td>
       <td>
         ${group ? `<span class="chip font-bold">${group.name}</span>` : '<span class="text-muted">Chưa có nhóm</span>'}
@@ -393,7 +399,11 @@ function updateTableAndFilters() {
       <td><span class="chip" style="font-family:monospace;letter-spacing:1px">••••••</span></td>
       <td>
         <div class="flex gap-1">
-          <button class="btn btn-secondary btn-sm" onclick="openUserModal('${u.id}')">✏️ Sửa</button>
+          ${!cls && u.role !== 'giaovien' ? `
+            <button class="btn btn-primary btn-sm" onclick="openUserModal('${u.id}')" title="Phân vào lớp học">🏫 Duyệt lớp</button>
+          ` : `
+            <button class="btn btn-secondary btn-sm" onclick="openUserModal('${u.id}')">✏️ Sửa</button>
+          `}
           ${u.id !== user.id ? `
             <button class="btn btn-danger btn-sm btn-icon-sm" onclick="delUser('${u.id}')">🗑️</button>
           ` : ''}

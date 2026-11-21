@@ -222,10 +222,26 @@ app.post('/api/auth/google', (req, res) => {
     }
 
     if (!user) {
-      return res.status(404).json({
-        success: false,
-        message: `Email "${email}" chưa được đăng ký trong danh sách lớp học nào. Vui lòng liên hệ Giảng viên để được thêm vào danh sách lớp!`
-      });
+      // Yêu cầu: Bất kỳ ai cũng có thể tạo tài khoản qua Google.
+      // Nếu chưa có trong hệ thống, tự động tạo tài khoản với trạng thái chưa có lớp (chờ xác nhận)
+      const newId = 'u_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+      const userName = name && name.trim() ? name.trim() : email.split('@')[0];
+      db.prepare(`
+        INSERT INTO users (id, name, email, password, role, class_id, mssv, original_email)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+      `).run(newId, userName, q, '123456', 'sinhvien', null, null, q);
+      db.setUpdatedAt();
+
+      user = {
+        id: newId,
+        name: userName,
+        email: q,
+        password: '123456',
+        role: 'sinhvien',
+        classId: null,
+        mssv: null,
+        originalEmail: q
+      };
     }
 
     // Nếu có email trường đăng nhập thành công, tự động cập nhật original_email nếu chưa có

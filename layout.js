@@ -2,10 +2,24 @@
 //  KTPMUD – Layout Builder (Sidebar + Topbar)
 // ═══════════════════════════════════════════════════════════
 
-function getNavConfig(role) {
+function getNavConfig(userOrRole) {
+  const user = typeof userOrRole === 'object' ? userOrRole : DB.session();
+  const role = user?.role || (typeof userOrRole === 'string' ? userOrRole : 'sinhvien');
+  const isConfirmed = role === 'giaovien' || Boolean(DB.userClassId(user));
+
   const all = [
     { id:'dashboard', icon:'⊞', label:'Tổng quan', href:'dashboard.html' },
   ];
+
+  // Nếu tài khoản Google chưa được xác nhận qua file Excel hoặc Giảng viên/Nhóm trưởng
+  if (!isConfirmed) {
+    return [
+      ...all,
+      { section:'HƯỚNG DẪN' },
+      { id:'guide', icon:'📖', label:'HD sử dụng & Giới thiệu', href:'guide.html' }
+    ];
+  }
+
   const gvItems = [
     { section:'QUẢN LÝ LỚP' },
     { id:'classes',  icon:'🏫', label:'Lớp học',        href:'classes.html' },
@@ -18,6 +32,8 @@ function getNavConfig(role) {
     { id:'gradebook',icon:'📊', label:'Bảng điểm',      href:'gradebook.html' },
     { section:'HỆ THỐNG' },
     { id:'users',    icon:'⚙️', label:'Tài khoản',      href:'users.html' },
+    { section:'TRỢ GIÚP' },
+    { id:'guide',    icon:'📖', label:'HD sử dụng & Giới thiệu', href:'guide.html' },
   ];
   const ntItems = [
     { section:'NHÓM CỦA TÔI' },
@@ -29,6 +45,8 @@ function getNavConfig(role) {
     { id:'product',  icon:'📦', label:'Sản phẩm cuối kỳ', href:'product.html' },
     { section:'KẾT QUẢ' },
     { id:'grades',   icon:'🏆', label:'Điểm số',        href:'grades.html' },
+    { section:'TRỢ GIÚP' },
+    { id:'guide',    icon:'📖', label:'HD sử dụng & Giới thiệu', href:'guide.html' },
   ];
   const svItems = [
     { section:'DỰ ÁN' },
@@ -39,13 +57,15 @@ function getNavConfig(role) {
     { id:'product',  icon:'📦', label:'Sản phẩm cuối kỳ', href:'product.html' },
     { section:'KẾT QUẢ' },
     { id:'grades',   icon:'🏆', label:'Điểm số',        href:'grades.html' },
+    { section:'TRỢ GIÚP' },
+    { id:'guide',    icon:'📖', label:'HD sử dụng & Giới thiệu', href:'guide.html' },
   ];
   const byRole = { giaovien:[...all,...gvItems], nhomt:[...all,...ntItems], sinhvien:[...all,...svItems] };
   return byRole[role] || all;
 }
 
 function buildSidebar(user, pageId) {
-  const nav = getNavConfig(user.role);
+  const nav = getNavConfig(user);
   const navHtml = nav.map(item => {
     if (item.section) return `<div class="sidebar-section-label">${item.section}</div>`;
     const active = item.id === pageId ? 'active' : '';
@@ -106,6 +126,9 @@ function buildTopbar(user, title) {
       <div class="topbar-title">${title}</div>
       ${classEl}
       <div class="topbar-actions">
+        <a href="guide.html" class="btn btn-secondary btn-sm" style="display:inline-flex;align-items:center;gap:4px;text-decoration:none;font-weight:600;font-size:12px;padding:6px 11px">
+          📖 Giới thiệu & Hướng dẫn
+        </a>
         <button class="topbar-icon-btn" title="Thông báo">🔔</button>
         <div class="avatar" style="background:${avatarBg(user.name)};cursor:pointer" title="${user.name}">${getInitials(user.name)}</div>
       </div>
@@ -127,6 +150,13 @@ function switchClass(classId) {
 function initPage(title, pageId) {
   const user = requireAuth();
   if (!user) return null;
+
+  // Kiểm tra tài khoản đã được xác nhận vào lớp học chưa (qua file Excel, GV hoặc Nhóm trưởng)
+  const isConfirmed = user.role === 'giaovien' || Boolean(DB.userClassId(user));
+  if (!isConfirmed && pageId !== 'dashboard' && pageId !== 'guide') {
+    window.location.href = 'dashboard.html';
+    return null;
+  }
 
   const sidebar = buildSidebar(user, pageId);
   const topbar  = buildTopbar(user, title);

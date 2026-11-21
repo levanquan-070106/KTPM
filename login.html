@@ -85,6 +85,12 @@
         </div>
         <button type="submit" class="btn-login">Đăng nhập</button>
       </form>
+
+      <div style="text-align:center;margin-top:20px;padding-top:16px;border-top:1px solid #f3f4f6">
+        <a href="guide.html" style="font-size:13px;color:var(--gray-700);text-decoration:none;font-weight:600;display:inline-flex;align-items:center;gap:6px">
+          📖 Giới thiệu đề tài & Hướng dẫn sử dụng
+        </a>
+      </div>
     </div>
   </div>
 
@@ -142,16 +148,23 @@
         }
       }
 
-      // 2. Fallback xử lý offline / local database
+      // 2. Fallback xử lý offline / local database: Bất kỳ ai cũng có thể tạo tài khoản qua Google
       let u = DB.findUser(googleEmail);
-      if (u) {
-        DB.setSession(u);
-        window.location.href = 'dashboard.html';
-        return;
+      if (!u) {
+        u = {
+          id: uid(),
+          name: googleName || googleEmail.split('@')[0],
+          email: googleEmail,
+          password: '123456',
+          role: 'sinhvien',
+          classId: null,
+          mssv: null,
+          originalEmail: googleEmail
+        };
+        DB.addUser(u);
       }
-
-      errEl.textContent = `Tài khoản Google (${googleEmail}) chưa có trong danh sách lớp học nào! Vui lòng liên hệ Giảng viên.`;
-      errEl.classList.add('show');
+      DB.setSession(u);
+      window.location.href = 'dashboard.html';
     }
 
     // ── ĐĂNG NHẬP TRUYỀN THỐNG BẰNG EMAIL & PASSWORD ─────────

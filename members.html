@@ -142,14 +142,19 @@ window.openAddMemberModal = function() {
   if (!group) return;
 
   const allGroups = DB.groups();
-  // Chỉ lấy sinh viên thuộc cùng lớp học với nhóm này và chưa có nhóm
-  const freeUsers = DB.studentsByClass(group.classId).filter(u =>
+  // Lấy sinh viên cùng lớp chưa có nhóm HOẶC sinh viên vừa đăng ký Google đang chờ duyệt
+  const inClassFree = DB.studentsByClass(group.classId).filter(u =>
     !allGroups.some(g => g.members.includes(u.id))
   );
+  const unassigned = DB.users().filter(u => u.role === 'sinhvien' && !DB.userClassId(u));
+  const freeUsers = [...inClassFree, ...unassigned];
 
   const sel = document.getElementById('sel-student');
-  sel.innerHTML = '<option value="">-- Chọn sinh viên cùng lớp chưa có nhóm --</option>' +
-    freeUsers.map(u => `<option value="${u.id}">${u.name} (${u.email})</option>`).join('');
+  sel.innerHTML = '<option value="">-- Chọn sinh viên chưa có nhóm --</option>' +
+    freeUsers.map(u => {
+      const isUnassigned = !DB.userClassId(u);
+      return `<option value="${u.id}">${u.name} (${u.email})${isUnassigned ? ' — [Google mới / Chờ duyệt]' : ''}</option>`;
+    }).join('');
 
   openModal('m-add-member');
 };
@@ -169,7 +174,14 @@ window.addMember = function(e) {
 
   const updatedMembers = [...group.members, userId];
   DB.updateGroup({ id: group.id, members: updatedMembers });
-  showToast('✅ Đã thêm sinh viên vào nhóm!', 'success');
+
+  // Tự động gán lớp học của nhóm cho sinh viên nếu sinh viên chưa có lớp (kích hoạt tài khoản)
+  const targetUser = DB.findUserById(userId);
+  if (targetUser && !targetUser.classId) {
+    DB.updateUser({ id: userId, classId: group.classId });
+  }
+
+  showToast('✅ Đã thêm sinh viên vào nhóm và kích hoạt tài khoản!', 'success');
   closeModal('m-add-member');
   render();
 };
