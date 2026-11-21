@@ -109,9 +109,27 @@ app.post('/api/restore', (req, res) => {
     db.exec('BEGIN');
     try {
       if (Array.isArray(data.users) && data.users.length > 0) {
+        // Lưu lại các tài khoản đăng ký qua Google hoặc chưa có trong danh sách phục hồi của client
+        const clientIds = new Set(data.users.map(u => u.id));
+        const clientEmails = new Set(data.users.map(u => (u.email || '').toLowerCase()));
+        let preservedUsers = [];
+        try {
+          const currentDbUsers = db.prepare('SELECT id, name, email, password, role, class_id as classId, mssv, original_email as originalEmail FROM users').all();
+          preservedUsers = currentDbUsers.filter(u => 
+            !clientIds.has(u.id) && !clientEmails.has((u.email || '').toLowerCase())
+          );
+        } catch {}
+
         db.prepare('DELETE FROM users').run();
         const insU = db.prepare('INSERT INTO users (id, name, email, password, role, class_id, mssv, original_email) VALUES (?, ?, ?, ?, ?, ?, ?, ?)');
         data.users.forEach(u => insU.run(u.id, u.name, u.email, u.password || '123456', u.role, u.classId || null, u.mssv || null, u.originalEmail || null));
+
+        // Khôi phục lại các tài khoản Google đã đăng ký trên server mà client chưa kịp tải về
+        preservedUsers.forEach(u => {
+          try {
+            insU.run(u.id, u.name, u.email, u.password || '123456', u.role, u.classId || null, u.mssv || null, u.originalEmail || null);
+          } catch {}
+        });
       }
 
       if (Array.isArray(data.classes)) {
@@ -219,6 +237,27 @@ app.post('/api/auth/google', (req, res) => {
         FROM users 
         WHERE LOWER(email) LIKE ? OR (mssv IS NOT NULL AND ? LIKE '%' || mssv || '%')
       `).get(`${userPart}@%`, q);
+    }
+
+    // Nếu chưa thấy, thử so khớp thông minh theo họ tên tiếng Việt (ví dụ: "Đỗ Xuân Nguyện" vs "Xuân Nguyện Đỗ")
+    if (!user && name && name.trim()) {
+      function normalizeName(str) {
+        if (!str) return '';
+        return str.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/đ/g, 'd').replace(/[^a-z0-9]/g, ' ').trim().split(/\s+/).filter(Boolean).sort().join(' ');
+      }
+      const targetNorm = normalizeName(name);
+      if (targetNorm) {
+        const allUsers = db.prepare('SELECT id, name, email, password, role, class_id as classId, mssv, original_email as originalEmail FROM users').all();
+        const matched = allUsers.find(u => normalizeName(u.name) === targetNorm);
+        if (matched) {
+          user = matched;
+          try {
+            db.prepare('UPDATE users SET original_email = ? WHERE id = ?').run(email, user.id);
+            user.originalEmail = email;
+            db.setUpdatedAt();
+          } catch {}
+        }
+      }
     }
 
     if (!user) {

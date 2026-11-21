@@ -168,7 +168,7 @@ function seedInitialData() {
     ['u1', 'TS. Hoàng Quang Huy',  'gv1@edu.vn', '123456', 'giaovien', null, null, null],
     ['u2', 'PGS. Nguyễn Thị Lan',  'gv2@edu.vn', '123456', 'giaovien', null, null, null],
     ['u3', 'Lê Văn Quân',          'lethiquan01@gmail.com', '123456', 'nhomt', 'c1', '202414324', 'lethiquan01@gmail.com'],
-    ['u4', 'Đỗ Xuân Nguyện',       'sv1@edu.vn', '123456', 'sinhvien', 'c1', '202414288', null],
+    ['u4', 'Đỗ Xuân Nguyện',       'doxuannguyen29@gmail.com', '123456', 'sinhvien', 'c1', '202414288', 'doxuannguyen29@gmail.com'],
     ['u5', 'Trần Thị Mai',         'sv2@edu.vn', '123456', 'sinhvien', 'c1', null, null],
     ['u6', 'Phạm Minh Tú',         'nt2@edu.vn', '123456', 'nhomt',    'c1', null, null],
     ['u7', 'Nguyễn Bảo Châu',      'sv3@edu.vn', '123456', 'sinhvien', 'c1', null, null],

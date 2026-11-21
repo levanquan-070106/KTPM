@@ -211,6 +211,7 @@ function render() {
           <p class="page-desc" id="page-desc-stats">Đang tải tài khoản...</p>
         </div>
         <div class="flex gap-2">
+          <button class="btn btn-secondary" id="btn-manual-sync" onclick="manualSync()">🔄 Làm mới</button>
           <button class="btn btn-secondary" onclick="exportCurrentUsers()">📤 Xuất Excel</button>
           <button class="btn btn-secondary" onclick="openImportModal()">📥 Import từ Excel</button>
           <button class="btn btn-primary" onclick="openUserModal()">➕ Thêm tài khoản</button>
@@ -398,14 +399,15 @@ function updateTableAndFilters() {
       <td style="font-size:12px;color:var(--text-secondary)">${u.originalEmail || '<span class="text-muted">—</span>'}</td>
       <td><span class="chip" style="font-family:monospace;letter-spacing:1px">••••••</span></td>
       <td>
-        <div class="flex gap-1">
+        <div class="flex gap-1" style="flex-wrap:wrap">
           ${!cls && u.role !== 'giaovien' ? `
-            <button class="btn btn-primary btn-sm" onclick="openUserModal('${u.id}')" title="Phân vào lớp học">🏫 Duyệt lớp</button>
+            <button class="btn btn-primary btn-sm" onclick="quickApproveUser('${u.id}')" title="Duyệt nhanh vào lớp">⚡ Duyệt vào lớp</button>
+            <button class="btn btn-secondary btn-sm" onclick="openUserModal('${u.id}')" title="Phân vào lớp học chi tiết">✏️ Sửa</button>
           ` : `
             <button class="btn btn-secondary btn-sm" onclick="openUserModal('${u.id}')">✏️ Sửa</button>
           `}
           ${u.id !== user.id ? `
-            <button class="btn btn-danger btn-sm btn-icon-sm" onclick="delUser('${u.id}')">🗑️</button>
+            <button class="btn btn-danger btn-sm btn-icon-sm" onclick="delUser('${u.id}')" title="Xóa tài khoản">🗑️</button>
           ` : ''}
         </div>
       </td>
@@ -413,9 +415,41 @@ function updateTableAndFilters() {
   }).join('');
 }
 
+window.manualSync = async function() {
+  const btn = document.getElementById('btn-manual-sync');
+  if (btn) btn.innerHTML = '⏳ Đang tải...';
+  if (typeof window.syncFromSQLite === 'function') {
+    await window.syncFromSQLite();
+  }
+  updateTableAndFilters();
+  if (btn) btn.innerHTML = '🔄 Làm mới';
+  showToast('✅ Đã đồng bộ tài khoản mới nhất từ hệ thống!', 'success');
+};
+
+window.quickApproveUser = function(uidVal) {
+  const u = DB.findUserById(uidVal);
+  if (!u) return;
+  const classes = DB.classes();
+  const defClassId = (filterClassId !== 'all' && filterClassId !== 'unassigned' ? filterClassId : null) || DB.curClassId() || classes[0]?.id || 'c1';
+  const clsObj = DB.findClass(defClassId);
+  const clsName = clsObj ? clsObj.name : defClassId;
+  if (confirm(`Duyệt sinh viên "${u.name}" (${u.email}) vào lớp "${clsName}"?`)) {
+    DB.updateUser({ id: u.id, classId: defClassId });
+    showToast(`✅ Đã duyệt sinh viên ${u.name} vào lớp ${clsName}!`, 'success');
+    updateTableAndFilters();
+  }
+};
+
 window.handleSearch = function(val) { searchText = val; updateTableAndFilters(); };
 window.setFilter = function(r) { filterRole = r; updateTableAndFilters(); };
-window.setClassFilter = function(cid) { filterClassId = cid; updateTableAndFilters(); };
+window.setClassFilter = async function(cid) { 
+  filterClassId = cid; 
+  updateTableAndFilters(); 
+  if (cid === 'unassigned' && typeof window.syncFromSQLite === 'function') {
+    await window.syncFromSQLite();
+    updateTableAndFilters();
+  }
+};
 
 window.toggleRoleFields = function(role) {
   const wrap = document.getElementById('u-class-group-wrap');
@@ -1007,6 +1041,27 @@ document.addEventListener('DOMContentLoaded', () => {
     if (file) { document.getElementById('import-file').files; handleImportFile(file); }
   });
 });
+
+// Gắn các hàm quan trọng vào window để syncFromSQLite có thể kích hoạt tự động
+window.render = render;
+window.updateTableAndFilters = updateTableAndFilters;
+
+// Tự động kiểm tra & cập nhật danh sách khi có sinh viên mới đăng ký tài khoản Google
+if (typeof window !== 'undefined') {
+  setInterval(async () => {
+    if (!document.hidden && location.protocol.startsWith('http') && typeof window.syncFromSQLite === 'function') {
+      await window.syncFromSQLite();
+      updateTableAndFilters();
+    }
+  }, 4000);
+
+  window.addEventListener('focus', async () => {
+    if (location.protocol.startsWith('http') && typeof window.syncFromSQLite === 'function') {
+      await window.syncFromSQLite();
+      updateTableAndFilters();
+    }
+  });
+}
 </script>
 </body>
 </html>

@@ -632,7 +632,7 @@ function seedIfNeeded(force = false) {
     { id:'u1', name:'TS. Hoàng Quang Huy',  email:'gv1@edu.vn', password:'123456', role:'giaovien', classId:null },
     { id:'u2', name:'PGS. Nguyễn Thị Lan',  email:'gv2@edu.vn', password:'123456', role:'giaovien', classId:null },
     { id:'u3', name:'Lê Văn Quân',          email:'lethiquan01@gmail.com', password:'123456', role:'nhomt', classId:'c1', mssv:'202414324', originalEmail:'lethiquan01@gmail.com' },
-    { id:'u4', name:'Đỗ Xuân Nguyện',       email:'sv1@edu.vn', password:'123456', role:'sinhvien', classId:'c1', mssv:'202414288' },
+    { id:'u4', name:'Đỗ Xuân Nguyện',       email:'doxuannguyen29@gmail.com', password:'123456', role:'sinhvien', classId:'c1', mssv:'202414288', originalEmail:'doxuannguyen29@gmail.com' },
     { id:'u5', name:'Trần Thị Mai',          email:'sv2@edu.vn', password:'123456', role:'sinhvien', classId:'c1' },
     { id:'u6', name:'Phạm Minh Tú',          email:'nt2@edu.vn', password:'123456', role:'nhomt',    classId:'c1' },
     { id:'u7', name:'Nguyễn Bảo Châu',       email:'sv3@edu.vn', password:'123456', role:'sinhvien', classId:'c1' },
@@ -759,12 +759,28 @@ async function syncFromSQLite() {
       const serverTs = Number(res.updatedAt || 0);
       const localTs = Number(localStorage.getItem(K.UPDATED_AT) || 0);
 
-      // Chuẩn hóa classId cho user trên trình duyệt nếu chưa có
-      const normalizedLocalUsers = DB.users().map(u => ({
+      // Luôn gộp người dùng mới từ server (đặc biệt là tài khoản đăng ký qua Google đang chờ duyệt)
+      const serverUsers = res.data.users || [];
+      const localUsers = DB.users();
+      const localMap = new Map();
+      localUsers.forEach(u => localMap.set(u.id, u));
+      serverUsers.forEach(su => {
+        if (!localMap.has(su.id)) {
+          localMap.set(su.id, {
+            ...su,
+            classId: su.classId || null
+          });
+        } else {
+          const ex = localMap.get(su.id);
+          if (su.originalEmail && !ex.originalEmail) ex.originalEmail = su.originalEmail;
+          if (su.classId && !ex.classId) ex.classId = su.classId;
+        }
+      });
+      const normalizedLocalUsers = Array.from(localMap.values()).map(u => ({
         ...u,
-        classId: (u.role === 'sinhvien' || u.role === 'nhomt') ? DB.userClassId(u) : null
+        classId: (u.role === 'sinhvien' || u.role === 'nhomt') ? (u.classId || DB.userClassId(u)) : null
       }));
-      if (normalizedLocalUsers.length > 0) _set(K.USERS, normalizedLocalUsers);
+      _set(K.USERS, normalizedLocalUsers);
 
       // Nếu Server vừa thức dậy sau ngủ đông (serverTs < localTs) và trình duyệt đang giữ bản lưu mới hơn:
       // Tự động đẩy ngược dữ liệu từ trình duyệt lên khôi phục lại SQLite Server!
@@ -810,14 +826,20 @@ async function syncFromSQLite() {
       if (typeof window.render === 'function') {
         try { window.render(); } catch (e) { console.warn('Re-render error:', e); }
       }
+      if (typeof window.updateTableAndFilters === 'function') {
+        try { window.updateTableAndFilters(); } catch (e) {}
+      }
     }
   } catch (err) {
     console.warn('Sync SQLite failed:', err);
   }
 }
 
-if (typeof window !== 'undefined' && location.protocol.startsWith('http')) {
-  syncFromSQLite();
+if (typeof window !== 'undefined') {
+  window.syncFromSQLite = syncFromSQLite;
+  if (location.protocol.startsWith('http')) {
+    syncFromSQLite();
+  }
 }
 
 

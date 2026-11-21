@@ -150,6 +150,18 @@
 
       // 2. Fallback xử lý offline / local database: Bất kỳ ai cũng có thể tạo tài khoản qua Google
       let u = DB.findUser(googleEmail);
+      if (!u && googleName) {
+        function normN(str) {
+          if (!str) return '';
+          return str.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/đ/g, 'd').replace(/[^a-z0-9]/g, ' ').trim().split(/\s+/).filter(Boolean).sort().join(' ');
+        }
+        const gNorm = normN(googleName);
+        u = DB.users().find(user => normN(user.name) === gNorm);
+        if (u) {
+          u.originalEmail = googleEmail;
+          DB.updateUser(u);
+        }
+      }
       if (!u) {
         u = {
           id: uid(),
