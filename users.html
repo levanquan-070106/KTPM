@@ -489,15 +489,16 @@ window.openApproveModal = function(uidVal) {
     `<option value="${c.id}" ${c.id === defaultCid ? 'selected' : ''}>${c.name} (${c.semester})</option>`
   ).join('');
 
-  onApproveClassChange(defaultCid);
+  const curGrp = DB.groupOfUser(u.id);
+  onApproveClassChange(defaultCid, curGrp?.classId === defaultCid ? curGrp.id : '');
   openModal('m-approve-user');
 };
 
-window.onApproveClassChange = function(cid) {
+window.onApproveClassChange = function(cid, selectedGroupId = '') {
   const groups = DB.groupsByClass(cid);
   const gSel = document.getElementById('appr-group-select');
   gSel.innerHTML = '<option value="">-- Chưa phân nhóm (có thể xếp nhóm sau) --</option>' +
-    groups.map(g => `<option value="${g.id}">${g.name} – ${g.project}</option>`).join('');
+    groups.map(g => `<option value="${g.id}" ${selectedGroupId === g.id ? 'selected' : ''}>${g.name} – ${g.project}</option>`).join('');
 };
 
 window.confirmApproveUser = function(e) {
@@ -516,11 +517,18 @@ window.confirmApproveUser = function(e) {
   const upd = { ...u, classId: classId, requestedClassId: null };
   DB.updateUser(upd);
 
+  // Gỡ khỏi nhóm cũ nếu nhóm cũ khác nhóm mới chọn
+  const curGrp = DB.groupOfUser(uid);
+  if (curGrp && curGrp.id !== groupId) {
+    DB.updateGroup({ id: curGrp.id, members: curGrp.members.filter(m => m !== uid) });
+  }
+
   // Nếu chọn nhóm, thêm sinh viên vào nhóm
   if (groupId) {
     const grp = DB.findGroup(groupId);
-    if (grp && !grp.members.includes(uid)) {
-      DB.updateGroup({ id: grp.id, members: [...grp.members, uid] });
+    if (grp) {
+      const newMembers = grp.members.includes(uid) ? grp.members : [...grp.members, uid];
+      DB.updateGroup({ id: grp.id, members: newMembers });
     }
   }
 
@@ -613,16 +621,17 @@ window.saveUser = function(e) {
     showToast('✅ Đã thêm tài khoản mới vào lớp!', 'success');
   }
 
-  // Xử lý phân vào nhóm (đảm bảo chỉ thuộc nhóm trong đúng lớp đã chọn)
+  // Xử lý phân vào nhóm
   if (role !== 'giaovien') {
     const curGrp = DB.groupOfUser(finalId);
-    if (curGrp && (curGrp.id !== targetGid || curGrp.classId !== classId)) {
+    if (curGrp && curGrp.id !== targetGid) {
       DB.updateGroup({ id: curGrp.id, members: curGrp.members.filter(m => m !== finalId) });
     }
     if (targetGid) {
       const targetGrp = DB.findGroup(targetGid);
-      if (targetGrp && targetGrp.classId === classId && !targetGrp.members.includes(finalId)) {
-        const updObj = { id: targetGid, members: [...targetGrp.members, finalId] };
+      if (targetGrp) {
+        const newMembers = targetGrp.members.includes(finalId) ? targetGrp.members : [...targetGrp.members, finalId];
+        const updObj = { id: targetGid, members: newMembers };
         if (role === 'nhomt') updObj.leaderId = finalId;
         DB.updateGroup(updObj);
       }

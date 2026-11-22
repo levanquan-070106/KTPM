@@ -320,12 +320,12 @@ app.put('/api/users/:id', (req, res) => {
           email = COALESCE(?, email), 
           password = COALESCE(?, password), 
           role = COALESCE(?, role), 
-          class_id = ?, 
+          class_id = COALESCE(?, class_id), 
           mssv = COALESCE(?, mssv), 
           original_email = COALESCE(?, original_email),
           requested_class_id = ?
       WHERE id = ?
-    `).run(name, email, password || null, role, classId ?? null, mssv ?? null, originalEmail ?? null, requestedClassId ?? null, req.params.id);
+    `).run(name ?? null, email ?? null, password || null, role ?? null, classId ?? null, mssv ?? null, originalEmail ?? null, requestedClassId ?? null, req.params.id);
     const ts = db.setUpdatedAt();
     res.json({ success: true, updatedAt: ts });
   } catch (err) {
@@ -360,8 +360,8 @@ app.post('/api/classes', (req, res) => {
 app.put('/api/classes/:id', (req, res) => {
   try {
     const { name, code, semester, totalWeeks, semStart, active } = req.body;
-    db.prepare('UPDATE classes SET name = ?, code = ?, semester = ?, total_weeks = ?, sem_start = ?, active = ? WHERE id = ?')
-      .run(name, code, semester, totalWeeks || 16, semStart, active ? 1 : 0, req.params.id);
+    db.prepare('UPDATE classes SET name = COALESCE(?, name), code = COALESCE(?, code), semester = COALESCE(?, semester), total_weeks = COALESCE(?, total_weeks), sem_start = COALESCE(?, sem_start), active = COALESCE(?, active) WHERE id = ?')
+      .run(name ?? null, code ?? null, semester ?? null, totalWeeks || 16, semStart ?? null, active !== undefined ? (active ? 1 : 0) : null, req.params.id);
     const ts = db.setUpdatedAt();
     res.json({ success: true, updatedAt: ts });
   } catch (err) {
@@ -397,14 +397,16 @@ app.post('/api/groups', (req, res) => {
   try {
     const { id, classId, name, project, tech, leaderId, description, createdAt, members } = req.body;
     db.prepare('INSERT INTO groups (id, class_id, name, project, tech, leader_id, description, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)')
-      .run(id, classId, name, project, tech, leaderId, description, createdAt || new Date().toISOString());
+      .run(id, classId, name, project || '', tech || '', leaderId || null, description || '', createdAt || new Date().toISOString());
 
     if (Array.isArray(members)) {
-      const ins = db.prepare('INSERT INTO group_members (group_id, user_id) VALUES (?, ?)');
+      const ins = db.prepare('INSERT OR IGNORE INTO group_members (group_id, user_id) VALUES (?, ?)');
       const updU = db.prepare('UPDATE users SET class_id = ? WHERE id = ?');
       members.forEach(m => {
-        ins.run(id, m);
-        if (classId) updU.run(classId, m);
+        if (m) {
+          ins.run(id, m);
+          if (classId) updU.run(classId, m);
+        }
       });
     }
     const ts = db.setUpdatedAt();
@@ -418,16 +420,18 @@ app.put('/api/groups/:id', (req, res) => {
   try {
     const { name, project, tech, leaderId, description, members, classId } = req.body;
     db.prepare('UPDATE groups SET name = COALESCE(?, name), project = COALESCE(?, project), tech = COALESCE(?, tech), leader_id = COALESCE(?, leader_id), description = COALESCE(?, description), class_id = COALESCE(?, class_id) WHERE id = ?')
-      .run(name, project, tech, leaderId, description, classId ?? null, req.params.id);
+      .run(name ?? null, project ?? null, tech ?? null, leaderId ?? null, description ?? null, classId ?? null, req.params.id);
 
     if (Array.isArray(members)) {
       db.prepare('DELETE FROM group_members WHERE group_id = ?').run(req.params.id);
-      const ins = db.prepare('INSERT INTO group_members (group_id, user_id) VALUES (?, ?)');
+      const ins = db.prepare('INSERT OR IGNORE INTO group_members (group_id, user_id) VALUES (?, ?)');
       const grpRow = db.prepare('SELECT class_id FROM groups WHERE id = ?').get(req.params.id);
       const updU = db.prepare('UPDATE users SET class_id = ? WHERE id = ?');
       members.forEach(m => {
-        ins.run(req.params.id, m);
-        if (grpRow?.class_id) updU.run(grpRow.class_id, m);
+        if (m) {
+          ins.run(req.params.id, m);
+          if (grpRow?.class_id) updU.run(grpRow.class_id, m);
+        }
       });
     }
     const ts = db.setUpdatedAt();
@@ -467,7 +471,7 @@ app.put('/api/tasks/:id', (req, res) => {
   try {
     const { title, desc, status, assignee, deadline, doneAt, priority } = req.body;
     db.prepare('UPDATE tasks SET title = COALESCE(?, title), desc = COALESCE(?, desc), status = COALESCE(?, status), assignee = COALESCE(?, assignee), deadline = COALESCE(?, deadline), done_at = COALESCE(?, done_at), priority = COALESCE(?, priority) WHERE id = ?')
-      .run(title, desc, status, assignee, deadline, doneAt, priority, req.params.id);
+      .run(title ?? null, desc ?? null, status ?? null, assignee ?? null, deadline ?? null, doneAt ?? null, priority ?? null, req.params.id);
     const ts = db.setUpdatedAt();
     res.json({ success: true, updatedAt: ts });
   } catch (err) {
@@ -490,7 +494,7 @@ app.post('/api/reports', (req, res) => {
   try {
     const { id, groupId, week, summary, plan, files, submittedAt, submittedBy, status, grade, feedback, gradedAt } = req.body;
     db.prepare('INSERT INTO reports (id, group_id, week, summary, plan, files, submitted_at, submitted_by, status, grade, feedback, graded_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
-      .run(id, groupId, week, summary, plan, JSON.stringify(files || []), submittedAt || new Date().toISOString(), submittedBy, status || 'submitted', grade, feedback, gradedAt);
+      .run(id, groupId, week, summary || '', plan || '', JSON.stringify(files || []), submittedAt || new Date().toISOString(), submittedBy || '', status || 'submitted', grade ?? null, feedback ?? null, gradedAt ?? null);
     const ts = db.setUpdatedAt();
     res.json({ success: true, updatedAt: ts });
   } catch (err) {
@@ -502,7 +506,7 @@ app.put('/api/reports/:id', (req, res) => {
   try {
     const { summary, plan, files, status, grade, feedback, gradedAt } = req.body;
     db.prepare('UPDATE reports SET summary = COALESCE(?, summary), plan = COALESCE(?, plan), files = COALESCE(?, files), status = COALESCE(?, status), grade = COALESCE(?, grade), feedback = COALESCE(?, feedback), graded_at = COALESCE(?, graded_at) WHERE id = ?')
-      .run(summary, plan, files ? JSON.stringify(files) : null, status, grade, feedback, gradedAt, req.params.id);
+      .run(summary ?? null, plan ?? null, files ? JSON.stringify(files) : null, status ?? null, grade ?? null, feedback ?? null, gradedAt ?? null, req.params.id);
     const ts = db.setUpdatedAt();
     res.json({ success: true, updatedAt: ts });
   } catch (err) {
@@ -515,7 +519,7 @@ app.post('/api/products', (req, res) => {
   try {
     const { id, groupId, name, description, github, demo, video, selfScore, files, submittedAt, submittedBy, grade, feedback, gradedAt } = req.body;
     db.prepare('INSERT INTO products (id, group_id, name, description, github, demo, video, self_score, files, submitted_at, submitted_by, grade, feedback, graded_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
-      .run(id, groupId, name, description, github, demo, video, selfScore, files, submittedAt || new Date().toISOString(), submittedBy, grade, feedback, gradedAt);
+      .run(id, groupId, name, description || '', github || '', demo || '', video || '', selfScore ?? null, files ? (typeof files === 'string' ? files : JSON.stringify(files)) : '[]', submittedAt || new Date().toISOString(), submittedBy || '', grade ?? null, feedback ?? null, gradedAt ?? null);
     const ts = db.setUpdatedAt();
     res.json({ success: true, updatedAt: ts });
   } catch (err) {
@@ -527,7 +531,7 @@ app.put('/api/products/:id', (req, res) => {
   try {
     const { name, description, github, demo, video, selfScore, files, grade, feedback, gradedAt } = req.body;
     db.prepare('UPDATE products SET name = COALESCE(?, name), description = COALESCE(?, description), github = COALESCE(?, github), demo = COALESCE(?, demo), video = COALESCE(?, video), self_score = COALESCE(?, self_score), files = COALESCE(?, files), grade = COALESCE(?, grade), feedback = COALESCE(?, feedback), graded_at = COALESCE(?, graded_at) WHERE id = ?')
-      .run(name, description, github, demo, video, selfScore, files, grade, feedback, gradedAt, req.params.id);
+      .run(name ?? null, description ?? null, github ?? null, demo ?? null, video ?? null, selfScore ?? null, files ? (typeof files === 'string' ? files : JSON.stringify(files)) : null, grade ?? null, feedback ?? null, gradedAt ?? null, req.params.id);
     const ts = db.setUpdatedAt();
     res.json({ success: true, updatedAt: ts });
   } catch (err) {
@@ -542,10 +546,10 @@ app.post('/api/grades', (req, res) => {
     const exists = db.prepare('SELECT group_id FROM grades WHERE group_id = ?').get(groupId);
     if (exists) {
       db.prepare('UPDATE grades SET process_score = ?, midterm_score = ?, final_score = ?, total_score = ?, note = ?, graded_by = ?, graded_at = ? WHERE group_id = ?')
-        .run(processScore, midtermScore, finalScore, totalScore, note, gradedBy, gradedAt || new Date().toISOString(), groupId);
+        .run(processScore ?? null, midtermScore ?? null, finalScore ?? null, totalScore ?? null, note ?? '', gradedBy ?? '', gradedAt || new Date().toISOString(), groupId);
     } else {
       db.prepare('INSERT INTO grades (group_id, process_score, midterm_score, final_score, total_score, note, graded_by, graded_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)')
-        .run(groupId, processScore, midtermScore, finalScore, totalScore, note, gradedBy, gradedAt || new Date().toISOString());
+        .run(groupId, processScore ?? null, midtermScore ?? null, finalScore ?? null, totalScore ?? null, note ?? '', gradedBy ?? '', gradedAt || new Date().toISOString());
     }
     const ts = db.setUpdatedAt();
     res.json({ success: true, updatedAt: ts });
