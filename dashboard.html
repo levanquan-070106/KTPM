@@ -129,6 +129,7 @@ function renderSV(el) {
           const curUser = DB.session();
           if (curUser && DB.userClassId(curUser)) {
             clearInterval(window._checkApproveTimer);
+            window._checkApproveTimer = null;
             showToast('🎉 Chúc mừng! Thầy đã phê duyệt bạn vào lớp học!', 'success');
             setTimeout(() => location.reload(), 500);
           }
@@ -140,6 +141,8 @@ function renderSV(el) {
           await window.syncFromSQLite(true);
           const curUser = DB.session();
           if (curUser && DB.userClassId(curUser)) {
+            if (window._checkApproveTimer) clearInterval(window._checkApproveTimer);
+            window._checkApproveTimer = null;
             location.reload();
           }
         }

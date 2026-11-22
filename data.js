@@ -267,9 +267,20 @@ const DB = {
     }
     // Tự động đồng bộ với thông tin tài khoản mới nhất trong cơ sở dữ liệu
     if (s && (s.id || s.email)) {
-      const fresh = this.users().find(u => (s.id && u.id === s.id) || (u.email && u.email.toLowerCase() === s.email?.toLowerCase()) || (u.originalEmail && u.originalEmail.toLowerCase() === s.email?.toLowerCase()));
+      const candidates = this.users().filter(u => 
+        (s.id && u.id === s.id) || 
+        (u.email && u.email.toLowerCase() === s.email?.toLowerCase()) || 
+        (u.originalEmail && u.originalEmail.toLowerCase() === s.email?.toLowerCase())
+      );
+      candidates.sort((a, b) => {
+        const aHas = Boolean(this.userClassId(a));
+        const bHas = Boolean(this.userClassId(b));
+        if (aHas === bHas) return 0;
+        return aHas ? -1 : 1;
+      });
+      const fresh = candidates[0];
       if (fresh) {
-        if (fresh.classId !== s.classId || fresh.role !== s.role || fresh.mssv !== s.mssv) {
+        if (fresh.classId !== s.classId || fresh.role !== s.role || fresh.mssv !== s.mssv || fresh.id !== s.id) {
           s = { ...s, ...fresh };
           _ssSet(K.SESSION, s);
         }
@@ -840,19 +851,23 @@ async function syncFromSQLite(silent = false) {
         }
       }
 
-      // Cập nhật lại session người dùng hiện tại nếu vừa được duyệt lớp hoặc đổi quyền
+      // Cập nhật lại session người dùng hiện tại nếu vừa được duyệt lớp hoặc đổi quyền (tuyệt đối không gọi location.reload() để tránh loop)
       const curSess = DB.session();
       if (curSess) {
-        const fresh = (res.data.users || []).find(u => (curSess.id && u.id === curSess.id) || (u.email && u.email.toLowerCase() === curSess.email?.toLowerCase()) || (u.originalEmail && u.originalEmail.toLowerCase() === curSess.email?.toLowerCase()));
+        const candidates = (res.data.users || []).filter(u => 
+          (curSess.id && u.id === curSess.id) || 
+          (u.email && u.email.toLowerCase() === curSess.email?.toLowerCase()) || 
+          (u.originalEmail && u.originalEmail.toLowerCase() === curSess.email?.toLowerCase())
+        );
+        candidates.sort((a, b) => {
+          const aHas = Boolean(DB.userClassId(a));
+          const bHas = Boolean(DB.userClassId(b));
+          if (aHas === bHas) return 0;
+          return aHas ? -1 : 1;
+        });
+        const fresh = candidates[0];
         if (fresh) {
-          const wasPending = !curSess.classId;
-          const isNowApproved = Boolean(fresh.classId);
           DB.setSession({ ...curSess, ...fresh });
-          if (wasPending && isNowApproved) {
-            // Tự động reload để mở khóa toàn bộ giao diện cho sinh viên
-            location.reload();
-            return;
-          }
         }
       }
 
