@@ -75,7 +75,7 @@ function getFullGroups() {
 // 1. Bootstrap: Lấy toàn bộ dữ liệu ban đầu cho client
 app.get('/api/bootstrap', (req, res) => {
   try {
-    const users = db.prepare('SELECT id, name, email, password, role, class_id as classId, mssv, original_email as originalEmail FROM users').all();
+    const users = db.prepare('SELECT id, name, email, password, role, class_id as classId, mssv, original_email as originalEmail, requested_class_id as requestedClassId FROM users').all();
     const classes = db.prepare('SELECT id, name, code, semester, lecturer_id as lecturerId, total_weeks as totalWeeks, sem_start as semStart, active, created_at as createdAt FROM classes').all()
       .map(c => ({ ...c, active: Boolean(c.active) }));
     const groups = getFullGroups();
@@ -114,20 +114,20 @@ app.post('/api/restore', (req, res) => {
         const clientEmails = new Set(data.users.map(u => (u.email || '').toLowerCase()));
         let preservedUsers = [];
         try {
-          const currentDbUsers = db.prepare('SELECT id, name, email, password, role, class_id as classId, mssv, original_email as originalEmail FROM users').all();
+          const currentDbUsers = db.prepare('SELECT id, name, email, password, role, class_id as classId, mssv, original_email as originalEmail, requested_class_id as requestedClassId FROM users').all();
           preservedUsers = currentDbUsers.filter(u => 
             !clientIds.has(u.id) && !clientEmails.has((u.email || '').toLowerCase())
           );
         } catch {}
 
         db.prepare('DELETE FROM users').run();
-        const insU = db.prepare('INSERT INTO users (id, name, email, password, role, class_id, mssv, original_email) VALUES (?, ?, ?, ?, ?, ?, ?, ?)');
-        data.users.forEach(u => insU.run(u.id, u.name, u.email, u.password || '123456', u.role, u.classId || null, u.mssv || null, u.originalEmail || null));
+        const insU = db.prepare('INSERT INTO users (id, name, email, password, role, class_id, mssv, original_email, requested_class_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)');
+        data.users.forEach(u => insU.run(u.id, u.name, u.email, u.password || '123456', u.role, u.classId || null, u.mssv || null, u.originalEmail || null, u.requestedClassId || null));
 
         // Khôi phục lại các tài khoản Google đã đăng ký trên server mà client chưa kịp tải về
         preservedUsers.forEach(u => {
           try {
-            insU.run(u.id, u.name, u.email, u.password || '123456', u.role, u.classId || null, u.mssv || null, u.originalEmail || null);
+            insU.run(u.id, u.name, u.email, u.password || '123456', u.role, u.classId || null, u.mssv || null, u.originalEmail || null, u.requestedClassId || null);
           } catch {}
         });
       }
@@ -300,8 +300,8 @@ app.post('/api/auth/google', (req, res) => {
 // 3. Users CRUD
 app.post('/api/users', (req, res) => {
   try {
-    const { id, name, email, password, role, classId, mssv, originalEmail } = req.body;
-    db.prepare('INSERT INTO users (id, name, email, password, role, class_id, mssv, original_email) VALUES (?, ?, ?, ?, ?, ?, ?, ?)').run(id, name, email, password, role, classId || null, mssv || null, originalEmail || null);
+    const { id, name, email, password, role, classId, mssv, originalEmail, requestedClassId } = req.body;
+    db.prepare('INSERT INTO users (id, name, email, password, role, class_id, mssv, original_email, requested_class_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)').run(id, name, email, password, role, classId || null, mssv || null, originalEmail || null, requestedClassId || null);
     const ts = db.setUpdatedAt();
     res.json({ success: true, updatedAt: ts, message: 'Đã thêm người dùng' });
   } catch (err) {
@@ -311,14 +311,19 @@ app.post('/api/users', (req, res) => {
 
 app.put('/api/users/:id', (req, res) => {
   try {
-    const { name, email, password, role, classId, mssv, originalEmail } = req.body;
-    if (password) {
-      db.prepare('UPDATE users SET name = COALESCE(?, name), email = COALESCE(?, email), password = ?, role = COALESCE(?, role), class_id = COALESCE(?, class_id), mssv = COALESCE(?, mssv), original_email = COALESCE(?, original_email) WHERE id = ?')
-        .run(name, email, password, role, classId ?? null, mssv ?? null, originalEmail ?? null, req.params.id);
-    } else {
-      db.prepare('UPDATE users SET name = COALESCE(?, name), email = COALESCE(?, email), role = COALESCE(?, role), class_id = COALESCE(?, class_id), mssv = COALESCE(?, mssv), original_email = COALESCE(?, original_email) WHERE id = ?')
-        .run(name, email, role, classId ?? null, mssv ?? null, originalEmail ?? null, req.params.id);
-    }
+    const { name, email, password, role, classId, mssv, originalEmail, requestedClassId } = req.body;
+    db.prepare(`
+      UPDATE users 
+      SET name = COALESCE(?, name), 
+          email = COALESCE(?, email), 
+          password = COALESCE(?, password), 
+          role = COALESCE(?, role), 
+          class_id = ?, 
+          mssv = COALESCE(?, mssv), 
+          original_email = COALESCE(?, original_email),
+          requested_class_id = ?
+      WHERE id = ?
+    `).run(name, email, password || null, role, classId ?? null, mssv ?? null, originalEmail ?? null, requestedClassId ?? null, req.params.id);
     const ts = db.setUpdatedAt();
     res.json({ success: true, updatedAt: ts });
   } catch (err) {

@@ -97,7 +97,7 @@ const DB = {
     if (u.classId) return u.classId;
     const grp = this.groupOfUser(u.id);
     if (grp?.classId) return grp.classId;
-    if (['u3','u4','u5','u6','u7','u8'].includes(u.id)) return 'c1';
+    if (['u3','u4'].includes(u.id)) return 'c1';
     if (['u9','u10','u11','u12'].includes(u.id)) return 'c2';
     return null;
   },
@@ -652,7 +652,7 @@ function seedIfNeeded(force = false) {
 
   // Groups
   _set(K.GROUPS, [
-    { id:'g1', classId:'c1', name:'Nhóm 19', project:'Hệ thống quản lý tiến độ project KTPMUD', tech:'React · Node.js · PostgreSQL', leaderId:'u3', members:['u3','u4','u5'], createdAt:'2026-08-20', description:'Xây dựng nền tảng web quản lý tiến độ dự án cho môn KTPMUD, tích hợp kanban, báo cáo tuần và hệ thống chấm điểm.' },
+    { id:'g_nh_m_19', classId:'c1', name:'Nhóm 19', project:'Hệ thống quản lý tiến độ project KTPMUD', tech:'React · Node.js · PostgreSQL', leaderId:'u3', members:['u3','u4','u5'], createdAt:'2026-08-20', description:'Xây dựng nền tảng web quản lý tiến độ dự án cho môn KTPMUD, tích hợp kanban, báo cáo tuần và hệ thống chấm điểm.' },
     { id:'g2', classId:'c1', name:'Nhóm 20', project:'Ứng dụng đặt lịch phòng học thông minh',  tech:'Vue.js · Laravel · MySQL',      leaderId:'u6', members:['u6','u7','u8'], createdAt:'2026-08-20', description:'Phát triển ứng dụng đặt lịch phòng học, quản lý tài nguyên và thông báo tự động.' },
     { id:'g3', classId:'c2', name:'Nhóm 01', project:'Chatbot hỗ trợ sinh viên đại học',         tech:'Angular · Spring Boot · MongoDB', leaderId:'u9', members:['u9','u10','u11','u12'], createdAt:'2026-08-20', description:'Phát triển chatbot AI hỗ trợ sinh viên tra cứu thông tin, đăng ký môn học.' },
   ]);
@@ -660,13 +660,13 @@ function seedIfNeeded(force = false) {
   // Tasks (Kanban) for group 1
   const now = new Date();
   _set(K.TASKS, [
-    { id:'t1', groupId:'g1', title:'Phân tích yêu cầu hệ thống', desc:'Khảo sát nhu cầu, viết SRS', status:'done', assignee:'u4', deadline:'2026-09-05', createdBy:'u3', createdAt:'2026-08-21', doneAt:'2026-09-04', priority:'high' },
-    { id:'t2', groupId:'g1', title:'Thiết kế database schema', desc:'Vẽ ERD, viết DDL', status:'done', assignee:'u3', deadline:'2026-09-12', createdBy:'u3', createdAt:'2026-08-21', doneAt:'2026-09-11', priority:'high' },
-    { id:'t3', groupId:'g1', title:'Xây dựng API backend', desc:'Express + JWT + PostgreSQL', status:'doing', assignee:'u3', deadline:'2026-10-15', createdBy:'u3', createdAt:'2026-09-01', doneAt:null, priority:'high' },
-    { id:'t4', groupId:'g1', title:'Xây dựng giao diện frontend', desc:'React + Tailwind, responsive', status:'doing', assignee:'u5', deadline:'2026-10-18', createdBy:'u3', createdAt:'2026-09-01', doneAt:null, priority:'medium' },
-    { id:'t5', groupId:'g1', title:'Module Kanban board', desc:'Drag & drop, cập nhật realtime', status:'todo', assignee:'u4', deadline:'2026-10-25', createdBy:'u3', createdAt:'2026-09-15', doneAt:null, priority:'medium' },
-    { id:'t6', groupId:'g1', title:'Module xuất báo cáo Excel', desc:'Dùng SheetJS', status:'todo', assignee:'u5', deadline:'2026-10-28', createdBy:'u3', createdAt:'2026-09-15', doneAt:null, priority:'low' },
-    { id:'t7', groupId:'g1', title:'Viết tài liệu kỹ thuật', desc:'API docs, README', status:'review', assignee:'u4', deadline:'2026-10-13', createdBy:'u3', createdAt:'2026-10-01', doneAt:null, priority:'medium' },
+    { id:'t1', groupId:'g_nh_m_19', title:'Phân tích yêu cầu hệ thống', desc:'Khảo sát nhu cầu, viết SRS', status:'done', assignee:'u4', deadline:'2026-09-05', createdBy:'u3', createdAt:'2026-08-21', doneAt:'2026-09-04', priority:'high' },
+    { id:'t2', groupId:'g_nh_m_19', title:'Thiết kế database schema', desc:'Vẽ ERD, viết DDL', status:'done', assignee:'u3', deadline:'2026-09-12', createdBy:'u3', createdAt:'2026-08-21', doneAt:'2026-09-11', priority:'high' },
+    { id:'t3', groupId:'g_nh_m_19', title:'Xây dựng API backend', desc:'Express + JWT + PostgreSQL', status:'doing', assignee:'u3', deadline:'2026-10-15', createdBy:'u3', createdAt:'2026-09-01', doneAt:null, priority:'high' },
+    { id:'t4', groupId:'g_nh_m_19', title:'Xây dựng giao diện frontend', desc:'React + Tailwind, responsive', status:'doing', assignee:'u5', deadline:'2026-10-18', createdBy:'u3', createdAt:'2026-09-01', doneAt:null, priority:'medium' },
+    { id:'t5', groupId:'g_nh_m_19', title:'Module Kanban board', desc:'Drag & drop, cập nhật realtime', status:'todo', assignee:'u4', deadline:'2026-10-25', createdBy:'u3', createdAt:'2026-09-15', doneAt:null, priority:'medium' },
+    { id:'t6', groupId:'g_nh_m_19', title:'Module xuất báo cáo Excel', desc:'Dùng SheetJS', status:'todo', assignee:'u5', deadline:'2026-10-28', createdBy:'u3', createdAt:'2026-09-15', doneAt:null, priority:'low' },
+    { id:'t7', groupId:'g_nh_m_19', title:'Viết tài liệu kỹ thuật', desc:'API docs, README', status:'review', assignee:'u4', deadline:'2026-10-13', createdBy:'u3', createdAt:'2026-10-01', doneAt:null, priority:'medium' },
     // group 2
     { id:'t8', groupId:'g2', title:'Thiết kế UI/UX Figma', desc:'Wireframe + prototype', status:'done', assignee:'u7', deadline:'2026-09-10', createdBy:'u6', createdAt:'2026-08-22', doneAt:'2026-09-09', priority:'high' },
     { id:'t9', groupId:'g2', title:'Cài đặt Laravel backend', desc:'Auth, CRUD phòng học', status:'doing', assignee:'u6', deadline:'2026-10-20', createdBy:'u6', createdAt:'2026-09-05', doneAt:null, priority:'high' },
@@ -743,7 +743,7 @@ function seedIfNeeded(force = false) {
 
   // Grades
   _set(K.GRADES, [
-    { groupId:'g1', processScore:8.2, midtermScore:7.5, finalScore:null, totalScore:null, note:'', gradedBy:'u1', gradedAt:null },
+    { groupId:'g_nh_m_19', processScore:8.2, midtermScore:7.5, finalScore:null, totalScore:null, note:'', gradedBy:'u1', gradedAt:null },
     { groupId:'g2', processScore:7.0, midtermScore:6.5, finalScore:null, totalScore:null, note:'', gradedBy:'u1', gradedAt:null },
   ]);
 
