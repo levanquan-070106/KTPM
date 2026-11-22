@@ -258,6 +258,16 @@ const DB = {
         try { localStorage.removeItem(K.SESSION); } catch {}
       }
     }
+    // Tự động đồng bộ với thông tin tài khoản mới nhất trong cơ sở dữ liệu
+    if (s && (s.id || s.email)) {
+      const fresh = this.users().find(u => (s.id && u.id === s.id) || (u.email && u.email.toLowerCase() === s.email?.toLowerCase()) || (u.originalEmail && u.originalEmail.toLowerCase() === s.email?.toLowerCase()));
+      if (fresh) {
+        if (fresh.classId !== s.classId || fresh.role !== s.role || fresh.mssv !== s.mssv) {
+          s = { ...s, ...fresh };
+          _ssSet(K.SESSION, s);
+        }
+      }
+    }
     return s;
   },
   setSession(u) {
@@ -819,6 +829,22 @@ async function syncFromSQLite() {
         if (!curCid || (curCid !== 'all' && !res.data.classes.some(c => c.id === curCid))) {
           const firstClass = res.data.classes[0]?.id || 'all';
           localStorage.setItem(K.CUR_CLASS, firstClass);
+        }
+      }
+
+      // Cập nhật lại session người dùng hiện tại nếu vừa được duyệt lớp hoặc đổi quyền
+      const curSess = DB.session();
+      if (curSess) {
+        const fresh = (res.data.users || []).find(u => (curSess.id && u.id === curSess.id) || (u.email && u.email.toLowerCase() === curSess.email?.toLowerCase()) || (u.originalEmail && u.originalEmail.toLowerCase() === curSess.email?.toLowerCase()));
+        if (fresh) {
+          const wasPending = !curSess.classId;
+          const isNowApproved = Boolean(fresh.classId);
+          DB.setSession({ ...curSess, ...fresh });
+          if (wasPending && isNowApproved) {
+            // Tự động reload để mở khóa toàn bộ giao diện cho sinh viên
+            location.reload();
+            return;
+          }
         }
       }
 

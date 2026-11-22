@@ -120,6 +120,31 @@ function renderSV(el) {
 
   // Trường hợp 1: Tài khoản Google mới tạo, CHƯA được xác nhận qua file Excel hoặc Giảng viên/Nhóm trưởng
   if (!isConfirmed) {
+    // Tự động kiểm tra định kỳ mỗi 3 giây trong thời gian thực khi Thầy bấm duyệt
+    if (!window._checkApproveTimer) {
+      window._checkApproveTimer = setInterval(async () => {
+        if (!document.hidden && location.protocol.startsWith('http') && typeof window.syncFromSQLite === 'function') {
+          await window.syncFromSQLite();
+          const curUser = DB.session();
+          if (curUser && DB.userClassId(curUser)) {
+            clearInterval(window._checkApproveTimer);
+            showToast('🎉 Chúc mừng! Thầy đã phê duyệt bạn vào lớp học!', 'success');
+            setTimeout(() => location.reload(), 600);
+          }
+        }
+      }, 3000);
+
+      window.addEventListener('focus', async () => {
+        if (location.protocol.startsWith('http') && typeof window.syncFromSQLite === 'function') {
+          await window.syncFromSQLite();
+          const curUser = DB.session();
+          if (curUser && DB.userClassId(curUser)) {
+            location.reload();
+          }
+        }
+      });
+    }
+
     const classes = DB.classes().filter(c => c.active !== false);
     const reqCls = user.requestedClassId ? DB.findClass(user.requestedClassId) : null;
     el.innerHTML = `
@@ -166,6 +191,7 @@ function renderSV(el) {
         </div>
 
         <div class="flex gap-2 justify-center flex-wrap">
+          <button class="btn btn-secondary" onclick="checkApprovalNow()" id="btn-check-appr">🔄 Kiểm tra duyệt ngay</button>
           <a href="guide.html" class="btn btn-primary">Xem Giới thiệu & Hướng dẫn sử dụng</a>
           <button class="btn btn-secondary" onclick="logout()">Đăng xuất</button>
         </div>
@@ -302,6 +328,22 @@ window.submitClassRequest = async function(e) {
   DB.setSession(upd);
   showToast('✅ Đã gửi yêu cầu vào lớp thành công! Vui lòng chờ Giảng viên hoặc Nhóm trưởng phê duyệt.', 'success');
   setTimeout(() => location.reload(), 1000);
+};
+
+window.checkApprovalNow = async function() {
+  const btn = document.getElementById('btn-check-appr');
+  if (btn) btn.innerHTML = '⏳ Đang kiểm tra...';
+  if (typeof window.syncFromSQLite === 'function') {
+    await window.syncFromSQLite();
+  }
+  const curUser = DB.session();
+  if (curUser && DB.userClassId(curUser)) {
+    showToast('🎉 Bạn đã được phê duyệt vào lớp học!', 'success');
+    setTimeout(() => location.reload(), 500);
+  } else {
+    showToast('Tài khoản vẫn đang trong hàng chờ duyệt. Hệ thống sẽ tự động cập nhật ngay khi Thầy duyệt!', 'info');
+    if (btn) btn.innerHTML = '🔄 Kiểm tra duyệt ngay';
+  }
 };
 
 render();
