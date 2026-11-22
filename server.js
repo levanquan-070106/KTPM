@@ -337,6 +337,7 @@ app.delete('/api/users/:id', (req, res) => {
   try {
     db.prepare('DELETE FROM users WHERE id = ?').run(req.params.id);
     db.prepare('DELETE FROM group_members WHERE user_id = ?').run(req.params.id);
+    db.prepare('UPDATE groups SET leader_id = NULL WHERE leader_id = ?').run(req.params.id);
     const ts = db.setUpdatedAt();
     res.json({ success: true, updatedAt: ts });
   } catch (err) {

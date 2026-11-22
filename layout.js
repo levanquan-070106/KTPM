@@ -100,6 +100,108 @@ function buildSidebar(user, pageId) {
     </aside>`;
 }
 
+function getNotifications(user) {
+  if (!user) return [];
+  const notifs = [];
+  const isGV = user.role === 'giaovien';
+
+  if (isGV) {
+    // 1. Sinh viên / tài khoản chờ duyệt
+    const unassigned = DB.users().filter(u => u.role !== 'giaovien' && !DB.userClassId(u));
+    if (unassigned.length > 0) {
+      notifs.push({
+        id: 'unassigned-users',
+        icon: '⏳',
+        title: 'Tài khoản chờ phê duyệt',
+        desc: `Có ${unassigned.length} tài khoản mới xin vào lớp đang chờ duyệt`,
+        link: 'users.html',
+        time: 'Cần xử lý'
+      });
+    }
+
+    // 2. Báo cáo tuần chờ chấm
+    const pendingReports = DB.reports().filter(r => r.status === 'submitted');
+    if (pendingReports.length > 0) {
+      notifs.push({
+        id: 'pending-reports',
+        icon: '📋',
+        title: 'Báo cáo tuần chờ chấm điểm',
+        desc: `Có ${pendingReports.length} báo cáo tuần từ các nhóm sinh viên đang chờ chấm`,
+        link: 'reports.html',
+        time: 'Báo cáo mới'
+      });
+    }
+
+    // 3. Sản phẩm cuối kỳ chờ nghiệm thu
+    const products = DB.products().filter(p => !p.grade);
+    if (products.length > 0) {
+      notifs.push({
+        id: 'pending-products',
+        icon: '📦',
+        title: 'Sản phẩm cuối kỳ chờ chấm',
+        desc: `Có ${products.length} nhóm đã nộp sản phẩm cuối kỳ`,
+        link: 'grading.html',
+        time: 'Cuối kỳ'
+      });
+    }
+  } else {
+    // Sinh viên & Nhóm trưởng
+    const myGrp = DB.groupOfUser(user.id);
+    const uCid = DB.userClassId(user);
+    const cls = uCid ? DB.findClass(uCid) : null;
+
+    if (cls) {
+      notifs.push({
+        id: 'cls-info',
+        icon: '🏫',
+        title: 'Lớp học hiện tại',
+        desc: `Bạn đang ở lớp ${cls.name} (${cls.semester})`,
+        link: 'dashboard.html',
+        time: 'Đã kích hoạt'
+      });
+    }
+
+    if (myGrp) {
+      const graded = DB.reportsByGroup(myGrp.id).filter(r => r.status === 'graded');
+      if (graded.length > 0) {
+        const last = graded[graded.length - 1];
+        notifs.push({
+          id: `grade-w${last.week}`,
+          icon: '⭐',
+          title: `Đã có điểm báo cáo tuần ${last.week}`,
+          desc: `Giảng viên đã chấm: ${last.grade}/10${last.feedback ? ` - "${last.feedback}"` : ''}`,
+          link: 'reports.html',
+          time: 'Điểm mới'
+        });
+      }
+
+      const w = typeof currentWeek === 'function' ? currentWeek(uCid) : 1;
+      const rep = DB.reportByGroupWeek(myGrp.id, w);
+      if (!rep || rep.status === 'draft') {
+        notifs.push({
+          id: `remind-w${w}`,
+          icon: '⏰',
+          title: `Nhắc nộp báo cáo tuần ${w}`,
+          desc: `Tuần ${w} chưa nộp báo cáo. Hãy hoàn thành báo cáo đính kèm file!`,
+          link: 'reports.html',
+          time: 'Nhắc nhở'
+        });
+      }
+    } else if (user.requestedClassId) {
+      const rCls = DB.findClass(user.requestedClassId);
+      notifs.push({
+        id: 'pending-cls',
+        icon: '⏳',
+        title: 'Đang chờ duyệt vào lớp',
+        desc: `Yêu cầu xin vào lớp ${rCls ? rCls.name : ''} đang chờ Giảng viên phê duyệt`,
+        link: 'dashboard.html',
+        time: 'Đang chờ'
+      });
+    }
+  }
+  return notifs;
+}
+
 function buildTopbar(user, title) {
   // Class selector for lecturer
   let classEl = '';
@@ -121,6 +223,8 @@ function buildTopbar(user, title) {
     if (cls) classEl = `<div class="topbar-class">🏫 <span>${cls.name}</span></div>`;
   }
 
+  const notifs = getNotifications(user);
+
   return `
     <header class="topbar">
       <div class="topbar-title">${title}</div>
@@ -129,11 +233,55 @@ function buildTopbar(user, title) {
         <a href="guide.html" class="btn btn-secondary btn-sm" style="display:inline-flex;align-items:center;text-decoration:none;font-weight:600;font-size:12px;padding:6px 11px">
           Giới thiệu & Hướng dẫn
         </a>
-        <button class="topbar-icon-btn" title="Thông báo">🔔</button>
+        <div style="position:relative">
+          <button class="topbar-icon-btn" onclick="toggleNotifications(event)" title="Thông báo" style="position:relative">
+            🔔
+            ${notifs.length > 0 ? `<span style="position:absolute;top:5px;right:5px;width:8px;height:8px;background:#ef4444;border-radius:50%;border:1.5px solid #fff"></span>` : ''}
+          </button>
+          <div id="notif-dropdown" style="display:none;position:absolute;right:0;top:44px;width:320px;background:#fff;border:1px solid var(--border);border-radius:var(--radius-md);box-shadow:0 12px 30px rgba(0,0,0,0.15);z-index:9999;overflow:hidden">
+            <div style="padding:12px 16px;background:var(--gray-50);border-bottom:1px solid var(--border);display:flex;justify-content:space-between;align-items:center">
+              <strong style="font-size:13px;color:var(--gray-900)">🔔 Thông báo (${notifs.length})</strong>
+              <span class="badge ${notifs.length > 0 ? 'badge-black' : 'badge-gray'}" style="font-size:10px">${notifs.length > 0 ? 'Mới' : 'Trống'}</span>
+            </div>
+            <div style="max-height:360px;overflow-y:auto">
+              ${notifs.length === 0 ? `
+                <div style="padding:28px 16px;text-align:center;color:var(--text-muted);font-size:13px">
+                  🎉 Không có thông báo mới nào
+                </div>
+              ` : notifs.map(n => `
+                <div onclick="navigate('${n.link}')" style="padding:11px 16px;display:flex;gap:12px;cursor:pointer;border-bottom:1px solid var(--border);transition:background .15s" onmouseover="this.style.background='var(--gray-50)'" onmouseout="this.style.background='transparent'">
+                  <div style="font-size:20px;line-height:1;margin-top:2px">${n.icon}</div>
+                  <div style="flex:1;min-width:0">
+                    <div style="font-size:13px;font-weight:700;color:var(--gray-900);margin-bottom:3px">${n.title}</div>
+                    <div style="font-size:12px;color:var(--text-secondary);line-height:1.4">${n.desc}</div>
+                    <div style="font-size:10.5px;color:var(--gray-500);margin-top:4px;font-weight:600">${n.time}</div>
+                  </div>
+                </div>
+              `).join('')}
+            </div>
+          </div>
+        </div>
         <div class="avatar" style="background:${avatarBg(user.name)};cursor:pointer" title="${user.name}">${getInitials(user.name)}</div>
       </div>
     </header>`;
 }
+
+window.toggleNotifications = function(e) {
+  if (e) { e.preventDefault(); e.stopPropagation(); }
+  const d = document.getElementById('notif-dropdown');
+  if (d) {
+    d.style.display = (d.style.display === 'none' || !d.style.display) ? 'block' : 'none';
+  }
+};
+
+document.addEventListener('click', e => {
+  const d = document.getElementById('notif-dropdown');
+  if (d && d.style.display === 'block') {
+    if (!e.target.closest('#notif-dropdown') && !e.target.closest('.topbar-icon-btn')) {
+      d.style.display = 'none';
+    }
+  }
+});
 
 function switchClass(classId) {
   DB.setCurClass(classId);

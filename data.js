@@ -125,6 +125,22 @@ const DB = {
   },
   deleteUser(id) {
     _set(K.USERS, this.users().filter(u => u.id !== id));
+    // Tự động gỡ thành viên khỏi tất cả các nhóm khi xóa tài khoản
+    const updatedGroups = this.groups().map(g => {
+      let changed = false;
+      let newMembers = g.members || [];
+      if (newMembers.includes(id)) {
+        newMembers = newMembers.filter(m => m !== id);
+        changed = true;
+      }
+      let newLeader = g.leaderId;
+      if (g.leaderId === id) {
+        newLeader = newMembers[0] || null;
+        changed = true;
+      }
+      return changed ? { ...g, members: newMembers, leaderId: newLeader } : g;
+    });
+    _set(K.GROUPS, updatedGroups);
     _api(`/api/users/${id}`, 'DELETE');
   },
 
@@ -267,11 +283,19 @@ const DB = {
     }
     // Tự động đồng bộ với thông tin tài khoản mới nhất trong cơ sở dữ liệu
     if (s && (s.id || s.email)) {
-      const candidates = this.users().filter(u => 
+      const allUsers = this.users();
+      const candidates = allUsers.filter(u => 
         (s.id && u.id === s.id) || 
         (u.email && u.email.toLowerCase() === s.email?.toLowerCase()) || 
         (u.originalEmail && u.originalEmail.toLowerCase() === s.email?.toLowerCase())
       );
+
+      // Nếu hệ thống đã tải danh sách tài khoản mà tài khoản này không còn tồn tại (đã bị xóa)
+      if (allUsers.length > 0 && candidates.length === 0 && s.role !== 'giaovien') {
+        this.clearSession();
+        return null;
+      }
+
       candidates.sort((a, b) => {
         const aHas = Boolean(this.userClassId(a));
         const bHas = Boolean(this.userClassId(b));
@@ -854,11 +878,21 @@ async function syncFromSQLite(silent = false) {
       // Cập nhật lại session người dùng hiện tại nếu vừa được duyệt lớp hoặc đổi quyền (tuyệt đối không gọi location.reload() để tránh loop)
       const curSess = DB.session();
       if (curSess) {
-        const candidates = (res.data.users || []).filter(u => 
+        const serverUsers = res.data.users || [];
+        const candidates = serverUsers.filter(u => 
           (curSess.id && u.id === curSess.id) || 
           (u.email && u.email.toLowerCase() === curSess.email?.toLowerCase()) || 
           (u.originalEmail && u.originalEmail.toLowerCase() === curSess.email?.toLowerCase())
         );
+
+        // Nếu tài khoản đã bị Giảng viên xóa khỏi Server
+        if (serverUsers.length > 0 && candidates.length === 0 && curSess.role !== 'giaovien') {
+          DB.clearSession();
+          alert('⚠️ Tài khoản này đã bị xóa khỏi hệ thống bởi Giảng viên!');
+          window.location.href = 'login.html';
+          return;
+        }
+
         candidates.sort((a, b) => {
           const aHas = Boolean(DB.userClassId(a));
           const bHas = Boolean(DB.userClassId(b));
