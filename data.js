@@ -74,8 +74,15 @@ const DB = {
     if (!email) return null;
     const q = email.trim().toLowerCase();
     const users = this.users();
+    // Ưu tiên tài khoản đã được phân lớp trước để tránh chọn nhầm tài khoản chờ duyệt trùng lặp
+    const sorted = [...users].sort((a, b) => {
+      const aHas = Boolean(this.userClassId(a));
+      const bHas = Boolean(this.userClassId(b));
+      if (aHas === bHas) return 0;
+      return aHas ? -1 : 1;
+    });
     // 1. So khớp chính xác email hệ thống hoặc email gốc
-    let found = users.find(u => 
+    let found = sorted.find(u => 
       u.email.toLowerCase() === q || 
       (u.originalEmail && u.originalEmail.toLowerCase() === q)
     );
@@ -83,7 +90,7 @@ const DB = {
 
     // 2. So khớp phần username trước dấu @ (cho phép xxx và xxx@edu.vn)
     const userPart = q.split('@')[0];
-    return users.find(u => 
+    return sorted.find(u => 
       u.email.toLowerCase().split('@')[0] === userPart ||
       (u.originalEmail && u.originalEmail.toLowerCase().split('@')[0] === userPart) ||
       (u.mssv && (q.includes(u.mssv) || userPart === u.mssv || u.mssv.endsWith(userPart)))
@@ -683,6 +690,7 @@ function seedIfNeeded(force = false) {
   ]);
 
   // Reports for group 1 (weeks 1-8)
+  const SEMESTER_START = new Date('2026-08-17T00:00:00Z');
   const reps = [];
   for (let w = 1; w <= 8; w++) {
     reps.push({
@@ -761,7 +769,7 @@ function seedIfNeeded(force = false) {
 }
 
 // Đồng bộ dữ liệu 2 chiều thông minh giữa Trình duyệt và SQLite Server
-async function syncFromSQLite() {
+async function syncFromSQLite(silent = false) {
   if (typeof window === 'undefined' || !location.protocol.startsWith('http')) return;
   try {
     const res = await _api('/api/bootstrap');
@@ -848,12 +856,14 @@ async function syncFromSQLite() {
         }
       }
 
-      // Cập nhật lại giao diện ngay sau khi đồng bộ xong
-      if (typeof window.render === 'function') {
-        try { window.render(); } catch (e) { console.warn('Re-render error:', e); }
-      }
-      if (typeof window.updateTableAndFilters === 'function') {
-        try { window.updateTableAndFilters(); } catch (e) {}
+      // Cập nhật lại giao diện ngay sau khi đồng bộ xong (chỉ khi không ở chế độ silent và không có input đang nhập)
+      if (!silent && !document.getElementById('req-mssv')) {
+        if (typeof window.render === 'function') {
+          try { window.render(); } catch (e) { console.warn('Re-render error:', e); }
+        }
+        if (typeof window.updateTableAndFilters === 'function') {
+          try { window.updateTableAndFilters(); } catch (e) {}
+        }
       }
     }
   } catch (err) {

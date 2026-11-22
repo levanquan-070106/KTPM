@@ -222,20 +222,22 @@ app.post('/api/auth/google', (req, res) => {
     if (!email) return res.status(400).json({ success: false, message: 'Thiếu thông tin email từ Google' });
 
     const q = email.trim().toLowerCase();
-    // Tìm theo email gốc (original_email) hoặc email hệ thống
+    // Tìm theo email gốc (original_email) hoặc email hệ thống, ưu tiên tài khoản đã được phân lớp
     let user = db.prepare(`
-      SELECT id, name, email, password, role, class_id as classId, mssv, original_email as originalEmail 
+      SELECT id, name, email, password, role, class_id as classId, mssv, original_email as originalEmail, requested_class_id as requestedClassId 
       FROM users 
       WHERE LOWER(original_email) = ? OR LOWER(email) = ?
+      ORDER BY CASE WHEN class_id IS NOT NULL THEN 0 ELSE 1 END, id ASC
     `).get(q, q);
 
     // Nếu chưa thấy, thử tìm theo username tiền tố hoặc MSSV
     if (!user) {
       const userPart = q.split('@')[0];
       user = db.prepare(`
-        SELECT id, name, email, password, role, class_id as classId, mssv, original_email as originalEmail 
+        SELECT id, name, email, password, role, class_id as classId, mssv, original_email as originalEmail, requested_class_id as requestedClassId 
         FROM users 
         WHERE LOWER(email) LIKE ? OR (mssv IS NOT NULL AND ? LIKE '%' || mssv || '%')
+        ORDER BY CASE WHEN class_id IS NOT NULL THEN 0 ELSE 1 END, id ASC
       `).get(`${userPart}@%`, q);
     }
 
@@ -247,7 +249,7 @@ app.post('/api/auth/google', (req, res) => {
       }
       const targetNorm = normalizeName(name);
       if (targetNorm) {
-        const allUsers = db.prepare('SELECT id, name, email, password, role, class_id as classId, mssv, original_email as originalEmail FROM users').all();
+        const allUsers = db.prepare('SELECT id, name, email, password, role, class_id as classId, mssv, original_email as originalEmail, requested_class_id as requestedClassId FROM users ORDER BY CASE WHEN class_id IS NOT NULL THEN 0 ELSE 1 END, id ASC').all();
         const matched = allUsers.find(u => normalizeName(u.name) === targetNorm);
         if (matched) {
           user = matched;

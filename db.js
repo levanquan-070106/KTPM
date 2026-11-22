@@ -119,10 +119,11 @@ function initSchema() {
     );
   `);
 
-  // Đảm bảo bảng users cũ (nếu có) có cột class_id, mssv, original_email
+  // Đảm bảo bảng users cũ (nếu có) có cột class_id, mssv, original_email, requested_class_id
   try { db.exec('ALTER TABLE users ADD COLUMN class_id TEXT'); } catch {}
   try { db.exec('ALTER TABLE users ADD COLUMN mssv TEXT'); } catch {}
   try { db.exec('ALTER TABLE users ADD COLUMN original_email TEXT'); } catch {}
+  try { db.exec('ALTER TABLE users ADD COLUMN requested_class_id TEXT'); } catch {}
 
   // Seed data ban đầu nếu bảng users trống
   const count = db.prepare('SELECT COUNT(*) as c FROM users').get().c;

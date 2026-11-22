@@ -120,29 +120,36 @@ function renderSV(el) {
 
   // Trường hợp 1: Tài khoản Google mới tạo, CHƯA được xác nhận qua file Excel hoặc Giảng viên/Nhóm trưởng
   if (!isConfirmed) {
-    // Tự động kiểm tra định kỳ mỗi 3 giây trong thời gian thực khi Thầy bấm duyệt
+    // Tự động kiểm tra định kỳ mỗi 4 giây trong thời gian thực khi Thầy bấm duyệt
     if (!window._checkApproveTimer) {
       window._checkApproveTimer = setInterval(async () => {
         if (!document.hidden && location.protocol.startsWith('http') && typeof window.syncFromSQLite === 'function') {
-          await window.syncFromSQLite();
+          // Đồng bộ ngầm tuyệt đối không re-render DOM để không làm mất dữ liệu người dùng đang nhập
+          await window.syncFromSQLite(true);
           const curUser = DB.session();
           if (curUser && DB.userClassId(curUser)) {
             clearInterval(window._checkApproveTimer);
             showToast('🎉 Chúc mừng! Thầy đã phê duyệt bạn vào lớp học!', 'success');
-            setTimeout(() => location.reload(), 600);
+            setTimeout(() => location.reload(), 500);
           }
         }
-      }, 3000);
+      }, 4000);
 
       window.addEventListener('focus', async () => {
         if (location.protocol.startsWith('http') && typeof window.syncFromSQLite === 'function') {
-          await window.syncFromSQLite();
+          await window.syncFromSQLite(true);
           const curUser = DB.session();
           if (curUser && DB.userClassId(curUser)) {
             location.reload();
           }
         }
       });
+    }
+
+    // Nếu khung form chờ duyệt đã được dựng trên trang rồi thì KHÔNG ghi đè el.innerHTML nữa!
+    // Tránh việc xóa mất focus và nội dung người dùng đang gõ trong ô MSSV
+    if (el.querySelector('#req-mssv')) {
+      return;
     }
 
     const classes = DB.classes().filter(c => c.active !== false);
@@ -159,16 +166,14 @@ function renderSV(el) {
         <!-- Form gửi thông tin xin vào Lớp học -->
         <div style="background:#fff;border:1px solid var(--border);border-radius:var(--radius-md);padding:20px;text-align:left;margin-bottom:20px;box-shadow:0 1px 3px rgba(0,0,0,0.05)">
           <div style="font-weight:700;color:var(--gray-900);margin-bottom:12px;font-size:15px">📝 Đăng ký thông tin xin vào Lớp học:</div>
-          ${reqCls ? `
-            <div style="padding:10px 14px;background:#ecfdf5;border:1px solid #a7f3d0;border-radius:6px;color:#065f46;font-size:13px;margin-bottom:14px">
-              ✅ Bạn đã gửi yêu cầu xin vào lớp <strong>${reqCls.name}</strong> (MSSV: <strong>${user.mssv || 'Chưa nhập'}</strong>). Vui lòng chờ Giảng viên phê duyệt hoặc báo Nhóm trưởng thêm bạn vào nhóm!
-            </div>
-          ` : ''}
+          <div id="req-success-msg" style="${reqCls ? '' : 'display:none;'}padding:10px 14px;background:#ecfdf5;border:1px solid #a7f3d0;border-radius:6px;color:#065f46;font-size:13px;margin-bottom:14px">
+            ✅ Bạn đã gửi yêu cầu xin vào lớp <strong>${reqCls ? reqCls.name : ''}</strong> (MSSV: <strong>${user.mssv || ''}</strong>). Vui lòng chờ Giảng viên phê duyệt hoặc báo Nhóm trưởng thêm bạn vào nhóm!
+          </div>
           <form onsubmit="submitClassRequest(event)">
             <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:14px">
               <div>
                 <label style="font-size:12px;font-weight:600;display:block;margin-bottom:5px">Mã số sinh viên (MSSV) <span style="color:red">*</span></label>
-                <input class="form-control" id="req-mssv" placeholder="VD: 202414288" value="${user.mssv || ''}" required/>
+                <input class="form-control" id="req-mssv" placeholder="VD: 202414288" value="${user.mssv || ''}" autocomplete="off" required/>
               </div>
               <div>
                 <label style="font-size:12px;font-weight:600;display:block;margin-bottom:5px">Chọn Lớp học của bạn <span style="color:red">*</span></label>
@@ -301,24 +306,33 @@ function renderSV(el) {
 
 window.submitClassRequest = async function(e) {
   e.preventDefault();
-  const mssv = document.getElementById('req-mssv').value.trim();
-  const classId = document.getElementById('req-class').value;
+  const mssvInput = document.getElementById('req-mssv');
+  const classInput = document.getElementById('req-class');
+  if (!mssvInput || !classInput) return;
+  const mssv = mssvInput.value.trim();
+  const classId = classInput.value;
   if (!mssv || !classId) return;
 
   const btn = document.getElementById('btn-submit-req');
   if (btn) btn.innerHTML = '⏳ Đang xử lý...';
 
-  // 1. Kiểm tra xem MSSV này có trùng với sinh viên nào trong lớp đã có sẵn chưa
-  const students = DB.studentsByClass(classId);
-  const matchedStudent = students.find(s => s.mssv && s.mssv.trim() === mssv);
+  // 1. Kiểm tra xem MSSV này có trùng với sinh viên/nhóm trưởng nào trên toàn hệ thống không
+  const allStudents = DB.users().filter(u => u.role !== 'giaovien');
+  const matchedStudent = allStudents.find(s => s.mssv && s.mssv.trim() === mssv);
 
   if (matchedStudent) {
     // Tự động gộp / liên kết tài khoản luôn!
     matchedStudent.originalEmail = user.email;
+    if (!matchedStudent.classId && classId) {
+      matchedStudent.classId = classId;
+    }
     DB.updateUser(matchedStudent);
+    if (user.id !== matchedStudent.id) {
+      DB.deleteUser(user.id);
+    }
     DB.setSession(matchedStudent);
     showToast(`✅ Đã nhận diện thành công sinh viên ${matchedStudent.name}! Đang chuyển vào lớp...`, 'success');
-    setTimeout(() => location.reload(), 1000);
+    setTimeout(() => location.reload(), 800);
     return;
   }
 
@@ -327,7 +341,13 @@ window.submitClassRequest = async function(e) {
   DB.updateUser(upd);
   DB.setSession(upd);
   showToast('✅ Đã gửi yêu cầu vào lớp thành công! Vui lòng chờ Giảng viên hoặc Nhóm trưởng phê duyệt.', 'success');
-  setTimeout(() => location.reload(), 1000);
+  const msgEl = document.getElementById('req-success-msg');
+  if (msgEl) {
+    const cls = DB.findClass(classId);
+    msgEl.innerHTML = `✅ Bạn đã gửi yêu cầu xin vào lớp <strong>${cls ? cls.name : ''}</strong> (MSSV: <strong>${mssv}</strong>). Vui lòng chờ Giảng viên phê duyệt hoặc báo Nhóm trưởng thêm bạn vào nhóm!`;
+    msgEl.style.display = 'block';
+  }
+  if (btn) btn.innerHTML = '💾 Cập nhật yêu cầu vào lớp';
 };
 
 window.checkApprovalNow = async function() {
