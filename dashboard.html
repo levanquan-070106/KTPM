@@ -319,9 +319,10 @@ window.submitClassRequest = async function(e) {
   const btn = document.getElementById('btn-submit-req');
   if (btn) btn.innerHTML = '⏳ Đang xử lý...';
 
-  // 1. Kiểm tra xem MSSV này có trùng với sinh viên/nhóm trưởng nào trên toàn hệ thống không
-  const allStudents = DB.users().filter(u => u.role !== 'giaovien');
-  const matchedStudent = allStudents.find(s => s.mssv && s.mssv.trim() === mssv);
+  // 1. Kiểm tra xem MSSV này có trùng với sinh viên/nhóm trưởng nào đã có trên hệ thống không
+  const allStudents = DB.users().filter(u => u.role !== 'giaovien' && u.id !== user.id);
+  const matchedStudent = allStudents.find(s => s.mssv && s.mssv.trim() === mssv && DB.userClassId(s))
+                      || allStudents.find(s => s.mssv && s.mssv.trim() === mssv);
 
   if (matchedStudent) {
     // Tự động gộp / liên kết tài khoản luôn!

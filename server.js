@@ -221,6 +221,11 @@ app.post('/api/auth/google', (req, res) => {
     const { email, name } = req.body;
     if (!email) return res.status(400).json({ success: false, message: 'Thiếu thông tin email từ Google' });
 
+    function normalizeName(str) {
+      if (!str) return '';
+      return str.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/đ/g, 'd').replace(/[^a-z0-9]/g, ' ').trim().split(/\s+/).filter(Boolean).sort().join(' ');
+    }
+
     const q = email.trim().toLowerCase();
     // Tìm theo email gốc (original_email) hoặc email hệ thống, ưu tiên tài khoản đã được phân lớp
     let user = db.prepare(`
@@ -243,10 +248,6 @@ app.post('/api/auth/google', (req, res) => {
 
     // Nếu chưa thấy, thử so khớp thông minh theo họ tên tiếng Việt (ví dụ: "Đỗ Xuân Nguyện" vs "Xuân Nguyện Đỗ")
     if (!user && name && name.trim()) {
-      function normalizeName(str) {
-        if (!str) return '';
-        return str.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/đ/g, 'd').replace(/[^a-z0-9]/g, ' ').trim().split(/\s+/).filter(Boolean).sort().join(' ');
-      }
       const targetNorm = normalizeName(name);
       if (targetNorm) {
         const allUsers = db.prepare('SELECT id, name, email, password, role, class_id as classId, mssv, original_email as originalEmail, requested_class_id as requestedClassId FROM users ORDER BY CASE WHEN class_id IS NOT NULL THEN 0 ELSE 1 END, id ASC').all();
@@ -254,11 +255,42 @@ app.post('/api/auth/google', (req, res) => {
         if (matched) {
           user = matched;
           try {
-            db.prepare('UPDATE users SET original_email = ? WHERE id = ?').run(email, user.id);
-            user.originalEmail = email;
+            if (user.email && user.email.endsWith('@noemail.local')) {
+              db.prepare('UPDATE users SET email = ?, original_email = ? WHERE id = ?').run(q, q, user.id);
+              user.email = q;
+            } else {
+              db.prepare('UPDATE users SET original_email = ? WHERE id = ?').run(q, user.id);
+            }
+            user.originalEmail = q;
             db.setUpdatedAt();
           } catch {}
         }
+      }
+    }
+
+    // Nếu tìm thấy tài khoản đang ở trạng thái chờ duyệt (chưa có lớp),
+    // kiểm tra xem danh sách lớp đã import (kể cả chưa điền email) có SV trùng MSSV hoặc trùng họ tên không để tự động ghép vào lớp
+    if (user && !user.classId) {
+      const classUsers = db.prepare('SELECT id, name, email, password, role, class_id as classId, mssv, original_email as originalEmail, requested_class_id as requestedClassId FROM users WHERE class_id IS NOT NULL ORDER BY id ASC').all();
+      const targetNorm = normalizeName(name || user.name);
+      const matchedClassUser = classUsers.find(cu =>
+        (user.mssv && cu.mssv && cu.mssv.trim() === user.mssv.trim()) ||
+        (targetNorm && normalizeName(cu.name) === targetNorm)
+      );
+      if (matchedClassUser) {
+        try {
+          db.prepare('DELETE FROM users WHERE id = ?').run(user.id);
+          db.prepare('DELETE FROM group_members WHERE user_id = ?').run(user.id);
+          if (matchedClassUser.email && matchedClassUser.email.endsWith('@noemail.local')) {
+            db.prepare('UPDATE users SET email = ?, original_email = ? WHERE id = ?').run(q, q, matchedClassUser.id);
+            matchedClassUser.email = q;
+          } else {
+            db.prepare('UPDATE users SET original_email = ? WHERE id = ?').run(q, matchedClassUser.id);
+          }
+          matchedClassUser.originalEmail = q;
+          db.setUpdatedAt();
+          user = matchedClassUser;
+        } catch {}
       }
     }
 
@@ -288,8 +320,8 @@ app.post('/api/auth/google', (req, res) => {
     // Nếu có email trường đăng nhập thành công, tự động cập nhật original_email nếu chưa có
     if (!user.originalEmail) {
       try {
-        db.prepare('UPDATE users SET original_email = ? WHERE id = ?').run(email, user.id);
-        user.originalEmail = email;
+        db.prepare('UPDATE users SET original_email = ? WHERE id = ?').run(q, user.id);
+        user.originalEmail = q;
       } catch {}
     }
 

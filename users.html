@@ -144,9 +144,9 @@
             </tr>
           </table>
           <div style="font-size:11px;color:#78350f;margin-top:6px;line-height:1.5">
-            • <strong>Tài khoản:</strong> Chỉ nhận sinh viên có email đuôi <code>@gmail.com</code> (Không nhận mail trường HUST). Ai không có email <code>@gmail.com</code> hệ thống sẽ tự động bỏ qua.<br/>
-            • <strong>Đăng nhập Google:</strong> Sinh viên dùng chính mật khẩu tài khoản Google cá nhân của họ để xác thực khi đăng nhập.<br/>
-            • <strong>Phân quyền & Nhóm:</strong> Người xuất hiện <strong>đầu tiên</strong> có Gmail trong mỗi nhóm sẽ là <strong>👑 Nhóm trưởng</strong>, các bạn phía sau là <strong>🎓 Thành viên</strong>. Hệ thống sẽ tự động tạo nhóm và gán đề tài vào đúng lớp học!
+            • <strong>Tài khoản & Cập nhật bổ sung:</strong> Hỗ trợ import cả sinh viên <strong>đã có email</strong> lẫn sinh viên <strong>chưa điền email</strong>. Khi bạn cập nhật bổ sung email vào file Excel và import lại, hệ thống sẽ <strong>tự động đối chiếu với danh sách chờ</strong> để ghép và kích hoạt tài khoản đăng nhập ngay!<br/>
+            • <strong>Đăng nhập Google:</strong> Sinh viên dùng Google có email/MSSV/họ tên khớp với danh sách lớp đã import sẽ được tự động cho vào lớp ngay lập tức.<br/>
+            • <strong>Phân quyền & Nhóm:</strong> Người xuất hiện <strong>đầu tiên</strong> trong mỗi nhóm sẽ là <strong>👑 Nhóm trưởng</strong>, các bạn phía sau là <strong>🎓 Thành viên</strong>.
           </div>
         </div>
       </div>
@@ -420,7 +420,7 @@ function updateTableAndFilters() {
         </div>
       </td>
       <td>${u.mssv ? `<span class="badge badge-gray" style="font-family:monospace">${u.mssv}</span>` : '<span class="text-muted">—</span>'}</td>
-      <td class="td-muted" style="font-family:monospace;font-size:12px">${u.email}</td>
+      <td class="td-muted" style="font-family:monospace;font-size:12px">${u.email && u.email.endsWith('@noemail.local') ? '<span style="color:#d97706;font-style:italic">Chưa có email</span>' : u.email}</td>
       <td>
         ${u.role === 'giaovien' ? '<span class="badge badge-black">GV</span>' :
           u.role === 'nhomt' ? '<span class="badge badge-gray font-bold">NT</span>' :
@@ -784,39 +784,43 @@ window.handleImportFile = function(file) {
         gmailKey = keys.find(k => /email|mail|t[aà]i\s*kho[aả]n/i.test(k) && k !== nameKey);
       }
 
-      // Hàm tìm Gmail cho từng dòng: dùng Regex chuẩn quốc tế + hỗ trợ sửa lỗi gõ thiếu chữ l (@gmai.com)
-      function extractRowGmail(r) {
+      function normImportName(str) {
+        if (!str) return '';
+        return str.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/đ/g, 'd').replace(/[^a-z0-9]/g, ' ').trim().split(/\s+/).filter(Boolean).sort().join(' ');
+      }
+
+      // Hàm tìm Email cho từng dòng: ưu tiên @gmail.com (sửa @gmai.com), sau đó lấy bất kỳ email hợp lệ nào; nếu trống trả về ''
+      function extractRowEmail(r) {
         if (gmailKey && r[gmailKey]) {
-          const m = String(r[gmailKey]).match(/[a-zA-Z0-9._%+-]+@(gmail|gmai)\.com/i);
-          if (m) return m[0].toLowerCase().replace(/@gmai\.com$/i, '@gmail.com');
+          const mg = String(r[gmailKey]).match(/[a-zA-Z0-9._%+-]+@(gmail|gmai)\.com/i);
+          if (mg) return mg[0].toLowerCase().replace(/@gmai\.com$/i, '@gmail.com');
+          const ma = String(r[gmailKey]).match(/[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/i);
+          if (ma) return ma[0].toLowerCase();
         }
         for (const k of Object.keys(r)) {
           if (k === nameKey) continue;
           const val = String(r[k] || '');
-          const m = val.match(/[a-zA-Z0-9._%+-]+@(gmail|gmai)\.com/i);
-          if (m) {
-            return m[0].toLowerCase().replace(/@gmai\.com$/i, '@gmail.com');
-          }
+          const mg = val.match(/[a-zA-Z0-9._%+-]+@(gmail|gmai)\.com/i);
+          if (mg) return mg[0].toLowerCase().replace(/@gmai\.com$/i, '@gmail.com');
+        }
+        for (const k of Object.keys(r)) {
+          if (k === nameKey) continue;
+          const val = String(r[k] || '');
+          const ma = val.match(/[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/i);
+          if (ma) return ma[0].toLowerCase();
         }
         return '';
       }
 
       // Tập hợp để theo dõi người đầu tiên trong từng nhóm xuất hiện trong danh sách
       const seenGroups = new Set();
-      let skippedCount = 0;
+      let noEmailCount = 0;
+      const targetClassId = document.getElementById('import-class').value;
 
       importRows = raw
         .filter(r => {
           const name = String(r[nameKey] || '').trim();
-          if (!name) return false;
-
-          const gmail = extractRowGmail(r);
-          // Chỉ lấy sinh viên có Gmail hợp lệ (@gmail.com); bỏ qua nếu không có hoặc là mail HUST
-          if (!gmail) {
-            skippedCount++;
-            return false;
-          }
-          return true;
+          return Boolean(name);
         })
         .map(r => {
           const name = String(r[nameKey] || '').trim();
@@ -824,13 +828,24 @@ window.handleImportFile = function(file) {
           if (!mssv && mssvMapByName[name.toLowerCase()]) {
             mssv = mssvMapByName[name.toLowerCase()];
           }
-          const email = extractRowGmail(r);
+          const email = extractRowEmail(r);
           const originalEmail = email;
+          if (!email) noEmailCount++;
 
-          const exists = Boolean(DB.users().find(u => 
-            (u.email && u.email.toLowerCase() === email) || 
-            (mssv && u.mssv && u.mssv === mssv)
+          const targetNorm = normImportName(name);
+          const allUsers = DB.users();
+          const matchedPending = allUsers.find(u => !DB.userClassId(u) && u.role !== 'giaovien' && (
+            (email && ((u.email && u.email.toLowerCase() === email) || (u.originalEmail && u.originalEmail.toLowerCase() === email))) ||
+            (mssv && u.mssv && u.mssv === mssv) ||
+            (targetNorm && normImportName(u.name) === targetNorm && (!mssv || !u.mssv || u.mssv === mssv))
           ));
+          const matchedInClass = allUsers.find(u => DB.userClassId(u) && u.role !== 'giaovien' && (
+            (email && ((u.email && u.email.toLowerCase() === email) || (u.originalEmail && u.originalEmail.toLowerCase() === email))) ||
+            (mssv && u.mssv && u.mssv === mssv) ||
+            (targetClassId && u.classId === targetClassId && targetNorm && normImportName(u.name) === targetNorm)
+          ));
+          const exists = Boolean(matchedInClass);
+          const matchPending = Boolean(matchedPending);
 
           // Chuẩn hóa tên nhóm: ví dụ "1" -> "Nhóm 01", "Nhóm 1" -> "Nhóm 01", hoặc giữ nguyên nếu đã có chữ "Nhóm ..."
           let rawGroup = groupKey ? String(r[groupKey] || '').trim() : '';
@@ -850,7 +865,7 @@ window.handleImportFile = function(file) {
             projectName = projectMapByGroup[groupName];
           }
 
-          // Phân vai trò: Người đầu tiên của nhóm có Gmail xuất hiện trong danh sách = Nhóm trưởng ('nhomt'), còn lại = Sinh viên ('sinhvien')
+          // Phân vai trò: Người đầu tiên của nhóm xuất hiện trong danh sách = Nhóm trưởng ('nhomt'), còn lại = Sinh viên ('sinhvien')
           let role = 'sinhvien';
           if (groupName) {
             if (!seenGroups.has(groupName)) {
@@ -861,15 +876,16 @@ window.handleImportFile = function(file) {
             }
           }
 
-          return { name, mssv, email, originalEmail, groupName, projectName, role, exists };
+          const pendingEmail = matchedPending ? (matchedPending.originalEmail || matchedPending.email) : '';
+          return { name, mssv, email, originalEmail, groupName, projectName, role, exists, matchPending, pendingEmail };
         });
 
       if (importRows.length === 0) {
-        showToast(`Không có dòng nào có email đuôi @gmail.com (Đã bỏ qua ${skippedCount} dòng không phải @gmail.com / mail HUST)!`, 'warning');
+        showToast('Không tìm thấy dữ liệu sinh viên hợp lệ trong file Excel!', 'warning');
         return;
       }
 
-      renderImportPreview(skippedCount);
+      renderImportPreview(noEmailCount);
     } catch (err) {
       console.error(err);
       showToast('Lỗi đọc file Excel: ' + err.message, 'error');
@@ -878,20 +894,22 @@ window.handleImportFile = function(file) {
   reader.readAsArrayBuffer(file);
 };
 
-function renderImportPreview(skippedCount = 0) {
-  const newCount  = importRows.filter(r => !r.exists).length;
-  const dupCount  = importRows.filter(r => r.exists).length;
+function renderImportPreview(noEmailCount = 0) {
+  const newCount     = importRows.filter(r => !r.exists && !r.matchPending).length;
+  const dupCount     = importRows.filter(r => r.exists).length;
+  const pendingCount = importRows.filter(r => r.matchPending).length;
   const uniqueGroups = new Set(importRows.map(r => r.groupName).filter(Boolean));
-  const leaderCount = importRows.filter(r => r.role === 'nhomt').length;
+  const leaderCount  = importRows.filter(r => r.role === 'nhomt').length;
 
   // Summary
   document.getElementById('import-summary').innerHTML = `
-    <div class="is-item"><strong>${importRows.length}</strong>Tài khoản @gmail.com hợp lệ</div>
-    ${skippedCount > 0 ? `<div class="is-item" style="color:#d97706"><strong>${skippedCount}</strong>Đã bỏ qua (không có @gmail.com / mail HUST)</div>` : ''}
+    <div class="is-item"><strong>${importRows.length}</strong>Sinh viên trong file</div>
+    ${noEmailCount > 0 ? `<div class="is-item" style="color:#d97706"><strong>${noEmailCount}</strong>Chưa có email (vẫn import vào lớp)</div>` : ''}
+    ${pendingCount > 0 ? `<div class="is-item" style="color:#7c3aed"><strong>${pendingCount}</strong>Khớp SV đang chờ duyệt</div>` : ''}
     <div class="is-item" style="color:#15803d"><strong>${newCount}</strong>Tài khoản mới sẽ tạo</div>
     <div class="is-item" style="color:#2563eb"><strong>${uniqueGroups.size}</strong>Nhóm sẽ tạo/phân vào</div>
     <div class="is-item" style="color:#b45309"><strong>${leaderCount}</strong>Nhóm trưởng (người đầu tiên)</div>
-    ${dupCount > 0 ? `<div class="is-item" style="color:#dc2626"><strong>${dupCount}</strong>Tài khoản đã có sẵn</div>` : ''}
+    ${dupCount > 0 ? `<div class="is-item" style="color:#dc2626"><strong>${dupCount}</strong>Đã có trong lớp (cập nhật)</div>` : ''}
   `;
 
   // Table
@@ -900,15 +918,15 @@ function renderImportPreview(skippedCount = 0) {
       <td class="text-muted">${i + 1}</td>
       <td><strong>${r.name}</strong></td>
       <td style="font-family:monospace">${r.mssv || '—'}</td>
-      <td style="font-family:monospace">${r.email}</td>
+      <td style="font-family:monospace">${r.email ? r.email : (r.pendingEmail ? `<span style="color:#7c3aed" title="Lấy từ tài khoản Google đang chờ">${r.pendingEmail}</span>` : '<span style="color:#d97706;font-style:italic">Chưa có email</span>')}</td>
       <td>${r.groupName ? `<span class="chip font-bold">${r.groupName}</span>` : '<span class="text-muted">—</span>'}</td>
       <td>${r.role === 'nhomt'
         ? '<span class="badge badge-black">👑 Nhóm trưởng</span>'
         : '<span class="badge badge-outline">🎓 Thành viên</span>'}</td>
       <td style="font-size:11px;max-width:180px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis" title="${r.projectName}">${r.projectName || '—'}</td>
-      <td>${r.exists
-        ? '<span class="badge-dup">Đã có</span>'
-        : '<span class="badge-new">Mới</span>'}</td>
+      <td>${r.matchPending
+        ? '<span class="badge-new" style="background:#ede9fe;color:#6d28d9">⚡ Khớp chờ duyệt</span>'
+        : (r.exists ? '<span class="badge-dup">Cập nhật</span>' : '<span class="badge-new">Mới</span>')}</td>
     </tr>
   `).join('');
 
@@ -922,48 +940,104 @@ window.confirmImport = function() {
   const classId = document.getElementById('import-class').value;
   if (!classId) { showToast('Vui lòng chọn lớp học!', 'error'); return; }
 
+  function normImportName(str) {
+    if (!str) return '';
+    return str.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/đ/g, 'd').replace(/[^a-z0-9]/g, ' ').trim().split(/\s+/).filter(Boolean).sort().join(' ');
+  }
+
   const cls = DB.findClass(classId);
   const createdList = [];
+  let matchedPendingCount = 0;
 
-  // Bước 1: Tạo/Cập nhật tài khoản sinh viên
+  // Bước 1: Tạo/Cập nhật tài khoản sinh viên & tự động đối chiếu danh sách chờ
   importRows.forEach(r => {
-    let existingUser = DB.users().find(u => 
-      (u.email && u.email.toLowerCase() === r.email.toLowerCase()) || 
-      (r.originalEmail && u.originalEmail && u.originalEmail.toLowerCase() === r.originalEmail.toLowerCase()) ||
-      (r.mssv && u.mssv && u.mssv === r.mssv)
-    );
-    let userId = existingUser ? existingUser.id : null;
+    const allUsers = DB.users();
+    const targetNorm = normImportName(r.name);
 
-    if (!existingUser) {
-      userId = uid();
+    const userInClass = allUsers.find(u => DB.userClassId(u) && u.role !== 'giaovien' && (
+      (r.email && ((u.email && u.email.toLowerCase() === r.email.toLowerCase()) || (u.originalEmail && u.originalEmail.toLowerCase() === r.email.toLowerCase()))) ||
+      (r.mssv && u.mssv && u.mssv === r.mssv) ||
+      (u.classId === classId && targetNorm && normImportName(u.name) === targetNorm)
+    ));
+
+    const pendingUser = allUsers.find(u => !DB.userClassId(u) && u.role !== 'giaovien' && (
+      (r.email && ((u.email && u.email.toLowerCase() === r.email.toLowerCase()) || (u.originalEmail && u.originalEmail.toLowerCase() === r.email.toLowerCase()))) ||
+      (r.mssv && u.mssv && u.mssv === r.mssv) ||
+      (targetNorm && normImportName(u.name) === targetNorm && (!r.mssv || !u.mssv || r.mssv === u.mssv))
+    ));
+
+    let finalEmail = r.email;
+
+    if (userInClass && pendingUser && userInClass.id !== pendingUser.id) {
+      // Cả 2 đều tồn tại (VD: trước đó import chưa có email, SV đã đăng nhập Google tạo bản ghi chờ) -> Gộp và kích hoạt!
+      const googleEmail = r.email || pendingUser.originalEmail || pendingUser.email;
+      DB.deleteUser(pendingUser.id);
+      const updEmail = (userInClass.email && userInClass.email.endsWith('@noemail.local')) ? googleEmail : userInClass.email;
+      DB.updateUser({
+        id:            userInClass.id,
+        name:          r.name || userInClass.name,
+        email:         updEmail,
+        role:          r.role,
+        classId:       classId,
+        mssv:          r.mssv || userInClass.mssv || pendingUser.mssv || null,
+        originalEmail: googleEmail || userInClass.originalEmail || null
+      });
+      r.finalUserId = userInClass.id;
+      finalEmail = googleEmail;
+      matchedPendingCount++;
+    } else if (pendingUser) {
+      // SV đã đăng nhập Google và nằm trong hàng chờ -> Cập nhật lớp, MSSV, vai trò để vào hệ thống ngay!
+      const googleEmail = r.email || pendingUser.originalEmail || pendingUser.email;
+      DB.updateUser({
+        id:               pendingUser.id,
+        name:             r.name || pendingUser.name,
+        email:            r.email || pendingUser.email,
+        role:             r.role,
+        classId:          classId,
+        mssv:             r.mssv || pendingUser.mssv || null,
+        originalEmail:    googleEmail,
+        requestedClassId: null
+      });
+      r.finalUserId = pendingUser.id;
+      finalEmail = googleEmail;
+      matchedPendingCount++;
+    } else if (userInClass) {
+      // Cập nhật SV đã có trong lớp (bổ sung email, MSSV, vai trò)
+      const updEmail = (r.email && userInClass.email && userInClass.email.endsWith('@noemail.local')) ? r.email : userInClass.email;
+      DB.updateUser({
+        id:            userInClass.id,
+        name:          r.name || userInClass.name,
+        email:         updEmail,
+        role:          r.role,
+        classId:       classId,
+        mssv:          r.mssv || userInClass.mssv || null,
+        originalEmail: r.email || userInClass.originalEmail || null
+      });
+      r.finalUserId = userInClass.id;
+      finalEmail = r.email || (userInClass.email && !userInClass.email.endsWith('@noemail.local') ? userInClass.email : 'Chưa có email');
+    } else {
+      // Tạo mới hoàn toàn (kể cả khi chưa điền email trong Excel)
+      const userId = uid();
+      const safeEmail = r.email || `pending_${r.mssv || userId}@noemail.local`;
       DB.addUser({
         id:            userId,
         name:          r.name,
-        email:         r.email,
+        email:         safeEmail,
         password:      '123456',
         role:          r.role,
         classId:       classId,
         mssv:          r.mssv || null,
-        originalEmail: r.originalEmail || null
+        originalEmail: r.email || null
       });
       r.finalUserId = userId;
-    } else {
-      // Nếu user đã tồn tại, cập nhật vai trò (nếu là nhóm trưởng), classId, mssv, originalEmail
-      r.finalUserId = existingUser.id;
-      DB.updateUser({
-        id:            existingUser.id,
-        role:          r.role,
-        classId:       classId,
-        mssv:          r.mssv || existingUser.mssv || null,
-        originalEmail: r.originalEmail || existingUser.originalEmail || null
-      });
+      finalEmail = r.email || 'Chưa có email';
     }
 
     createdList.push({
       name:          r.name,
       mssv:          r.mssv,
-      originalEmail: r.originalEmail || '—',
-      email:         r.email,
+      originalEmail: finalEmail !== 'Chưa có email' ? finalEmail : '—',
+      email:         finalEmail,
       password:      '123456',
       role:          r.role === 'nhomt' ? 'Nhóm trưởng' : 'Sinh viên',
       groupName:     r.groupName || 'Chưa phân nhóm',
@@ -1038,7 +1112,8 @@ window.confirmImport = function() {
   // Xuất file Excel danh sách tài khoản vừa tạo & phân nhóm
   exportAccountsExcel(createdList, cls?.name || 'DanhSach');
 
-  showToast(`✅ Đã thêm ${importRows.length} sinh viên, tạo/gán ${Object.keys(groupsMap).length} nhóm và xuất file Excel!`, 'success');
+  const pendingMsg = matchedPendingCount > 0 ? ` (đã tự động kích hoạt ${matchedPendingCount} SV chờ duyệt)` : '';
+  showToast(`✅ Đã xử lý ${importRows.length} sinh viên${pendingMsg}, tạo/gán ${Object.keys(groupsMap).length} nhóm và xuất file Excel!`, 'success');
   closeModal('m-import');
   render();
 };
