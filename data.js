@@ -445,71 +445,202 @@ function generateSampleFileDownload(f) {
   showToast(`✅ Đã tải tài liệu: ${f.name}`, 'success');
 }
 
-function viewFileUnified(f) {
-  if (typeof f === 'string') f = { name: f };
-  if (!f || !f.name) return;
-  const ext = (f.name || '').split('.').pop().toLowerCase();
-
-  if (f.path) {
-    const fullUrl = f.path.startsWith('http') ? f.path : (location.origin + f.path);
-    if (ext === 'pdf') {
-      window.open(fullUrl, '_blank');
-      return;
-    }
-    if (location.hostname !== 'localhost' && location.hostname !== '127.0.0.1') {
-      const officeViewer = `https://view.officeapps.live.com/op/view.aspx?src=${encodeURIComponent(fullUrl)}`;
-      window.open(officeViewer, '_blank');
-    } else {
-      downloadFileUnified(f);
-      showToast(`👁 File ${f.name} đã được tải về để bạn mở xem bằng Office.`, 'info');
-    }
-    return;
-  }
-
-  if (f.dataUrl) {
-    openDataUrlViewer(f.name, f.dataUrl);
-    return;
-  }
-
-  if (f.fileKey) {
-    FileStore.get(f.fileKey).then(dataUrl => {
-      if (dataUrl) {
-        openDataUrlViewer(f.name, dataUrl);
-      } else {
-        showFileSampleModal(f);
-      }
-    }).catch(() => showFileSampleModal(f));
-    return;
-  }
-
-  showFileSampleModal(f);
+const _loadedScripts = {};
+function loadScriptOnce(src) {
+  if (_loadedScripts[src]) return _loadedScripts[src];
+  _loadedScripts[src] = new Promise((resolve, reject) => {
+    const s = document.createElement('script');
+    s.src = src;
+    s.onload = () => resolve();
+    s.onerror = () => reject(new Error('Không thể tải thư viện xem tài liệu: ' + src));
+    document.head.appendChild(s);
+  });
+  return _loadedScripts[src];
 }
 
-function openDataUrlViewer(name, dataUrl) {
-  const ext = (name || '').split('.').pop().toLowerCase();
+function dataUrlToArrayBuffer(dataUrl) {
+  const byteStr = atob(dataUrl.split(',')[1]);
+  const ab = new ArrayBuffer(byteStr.length);
+  const ia = new Uint8Array(ab);
+  for (let i = 0; i < byteStr.length; i++) ia[i] = byteStr.charCodeAt(i);
+  return ab;
+}
+
+async function resolveFileSource(f) {
+  if (f.path) {
+    const fullUrl = f.path.startsWith('http') ? f.path : (location.origin + f.path);
+    return { type: 'url', url: fullUrl };
+  }
+  if (f.dataUrl) {
+    return { type: 'dataUrl', dataUrl: f.dataUrl };
+  }
+  if (f.fileKey) {
+    const dataUrl = await FileStore.get(f.fileKey);
+    if (dataUrl) return { type: 'dataUrl', dataUrl };
+  }
+  return null;
+}
+
+async function getFileArrayBuffer(srcInfo) {
+  if (srcInfo.type === 'dataUrl') {
+    return dataUrlToArrayBuffer(srcInfo.dataUrl);
+  }
+  const res = await fetch(srcInfo.url);
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  return await res.arrayBuffer();
+}
+
+function escapeHtmlSafe(str) {
+  return String(str || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+}
+
+async function viewFileUnified(f) {
+  if (typeof f === 'string') f = { name: f };
+  if (!f || !f.name) return;
+
+  const srcInfo = await resolveFileSource(f);
+  if (!srcInfo) {
+    showFileSampleModal(f);
+    return;
+  }
+
+  const ext = (f.name || '').split('.').pop().toLowerCase();
+  const modalId = 'm-doc-viewer';
+  let m = document.getElementById(modalId);
+  if (!m) {
+    m = document.createElement('div');
+    m.id = modalId;
+    m.className = 'modal-overlay';
+    m.style.zIndex = '2000';
+    document.body.appendChild(m);
+  }
+
+  const jsonStr = encodeURIComponent(JSON.stringify(f));
+  m.innerHTML = `
+    <div class="modal" style="max-width:980px;width:95vw;height:88vh;display:flex;flex-direction:column;padding:18px 22px">
+      <div class="modal-header" style="margin-bottom:12px;flex-shrink:0">
+        <div class="modal-title" style="display:flex;align-items:center;gap:8px;min-width:0">
+          <span>${fileIcon(f.name)}</span>
+          <span style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${escapeHtmlSafe(f.name)}</span>
+          <span class="badge badge-gray" style="font-size:11px;flex-shrink:0">${fmtBytes(f.size || 0)}</span>
+        </div>
+        <div style="display:flex;align-items:center;gap:8px;flex-shrink:0">
+          <button type="button" class="btn btn-primary btn-sm" onclick="downloadFileUnified(JSON.parse(decodeURIComponent('${jsonStr}')))">⬇️ Tải về</button>
+          <button type="button" class="modal-close" onclick="closeModal('${modalId}')">✕</button>
+        </div>
+      </div>
+      <div id="doc-viewer-body" style="flex:1;overflow:auto;background:#f3f4f6;border:1px solid var(--border);border-radius:8px;position:relative">
+        <div style="display:flex;flex-direction:column;align-items:center;justify-content:center;height:100%;color:var(--text-secondary);gap:8px">
+          <div style="font-size:28px">⏳</div>
+          <div style="font-size:13px;font-weight:600">Đang tải nội dung tài liệu...</div>
+        </div>
+      </div>
+    </div>
+  `;
+  openModal(modalId);
+
+  const body = document.getElementById('doc-viewer-body');
   try {
-    const byteStr = atob(dataUrl.split(',')[1]);
-    const ab = new ArrayBuffer(byteStr.length);
-    const ia = new Uint8Array(ab);
-    for (let i = 0; i < byteStr.length; i++) ia[i] = byteStr.charCodeAt(i);
-    const mimeMap = {
-      pdf: 'application/pdf',
-      docx: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
-      doc: 'application/msword',
-      pptx: 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
-      ppt: 'application/vnd.ms-powerpoint',
-      xlsx: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
-    };
-    const blob = new Blob([ab], { type: mimeMap[ext] || 'application/octet-stream' });
-    const url = URL.createObjectURL(blob);
     if (ext === 'pdf') {
-      window.open(url, '_blank');
-    } else {
-      const a = document.createElement('a'); a.href = url; a.download = name; a.click();
-      showToast(`👁 Đang tải ${name} để bạn mở xem bằng Office.`, 'info');
+      let pdfUrl = srcInfo.url;
+      if (srcInfo.type === 'dataUrl') {
+        const ab = dataUrlToArrayBuffer(srcInfo.dataUrl);
+        pdfUrl = URL.createObjectURL(new Blob([ab], { type: 'application/pdf' }));
+      }
+      body.innerHTML = `<iframe src="${pdfUrl}" style="width:100%;height:100%;min-height:68vh;border:none;background:#fff"></iframe>`;
+      return;
     }
+
+    if (ext === 'docx') {
+      if (!window.mammoth) {
+        await loadScriptOnce('https://cdn.jsdelivr.net/npm/mammoth@1.8.0/mammoth.browser.min.js');
+      }
+      const ab = await getFileArrayBuffer(srcInfo);
+      const result = await window.mammoth.convertToHtml({ arrayBuffer: ab });
+      body.innerHTML = `
+        <style>
+          .docx-paper { max-width: 790px; margin: 20px auto; background: #fff; padding: 36px 44px; border-radius: 6px; box-shadow: 0 2px 10px rgba(0,0,0,0.08); line-height: 1.7; font-size: 14px; color: #111827; }
+          .docx-paper h1, .docx-paper h2, .docx-paper h3 { margin: 14px 0 8px; font-weight: 700; color: #111; }
+          .docx-paper p { margin-bottom: 10px; }
+          .docx-paper table { width: 100%; border-collapse: collapse; margin: 12px 0; font-size: 13px; }
+          .docx-paper table td, .docx-paper table th { border: 1px solid #d1d5db; padding: 6px 10px; text-align: left; }
+          .docx-paper ul, .docx-paper ol { margin: 8px 0 12px 22px; }
+          .docx-paper img { max-width: 100%; height: auto; margin: 10px 0; }
+        </style>
+        <div class="docx-paper">${result.value || '<p style="color:#6b7280">(Tài liệu trống)</p>'}</div>
+      `;
+      return;
+    }
+
+    if (ext === 'xlsx' || ext === 'xls' || ext === 'csv') {
+      if (!window.XLSX) {
+        await loadScriptOnce('https://cdn.jsdelivr.net/npm/xlsx/dist/xlsx.full.min.js');
+      }
+      const ab = await getFileArrayBuffer(srcInfo);
+      const wb = window.XLSX.read(ab, { type: 'array' });
+      const sheetsHtml = wb.SheetNames.map(name => `
+        <div style="margin-bottom:20px">
+          <div style="font-weight:700;font-size:13px;margin-bottom:6px;color:#374151">📊 Sheet: ${escapeHtmlSafe(name)}</div>
+          <div style="overflow:auto;background:#fff;border:1px solid #e5e7eb;border-radius:6px;padding:10px">
+            ${window.XLSX.utils.sheet_to_html(wb.Sheets[name])}
+          </div>
+        </div>
+      `).join('');
+      body.innerHTML = `
+        <style>
+          #doc-viewer-body table { border-collapse: collapse; font-size: 12px; width: 100%; }
+          #doc-viewer-body td, #doc-viewer-body th { border: 1px solid #e5e7eb; padding: 5px 8px; white-space: nowrap; }
+          #doc-viewer-body tr:first-child { background: #f9fafb; font-weight: 700; }
+        </style>
+        <div style="padding:16px">${sheetsHtml}</div>
+      `;
+      return;
+    }
+
+    if (['png', 'jpg', 'jpeg', 'gif', 'webp'].includes(ext)) {
+      const imgSrc = srcInfo.type === 'dataUrl' ? srcInfo.dataUrl : srcInfo.url;
+      body.innerHTML = `<div style="display:flex;align-items:center;justify-content:center;min-height:100%;padding:16px"><img src="${imgSrc}" style="max-width:100%;max-height:74vh;border-radius:6px;box-shadow:0 2px 10px rgba(0,0,0,.1)"/></div>`;
+      return;
+    }
+
+    if (['txt', 'md', 'json', 'log'].includes(ext)) {
+      const ab = await getFileArrayBuffer(srcInfo);
+      const text = new TextDecoder('utf-8').decode(ab);
+      body.innerHTML = `<pre style="margin:16px;padding:20px;background:#fff;border:1px solid #e5e7eb;border-radius:6px;white-space:pre-wrap;font-size:13px;line-height:1.6">${escapeHtmlSafe(text)}</pre>`;
+      return;
+    }
+
+    if ((ext === 'pptx' || ext === 'ppt' || ext === 'doc') && srcInfo.type === 'url' && location.hostname !== 'localhost' && location.hostname !== '127.0.0.1') {
+      const embedUrl = `https://view.officeapps.live.com/op/embed.aspx?src=${encodeURIComponent(srcInfo.url)}`;
+      body.innerHTML = `
+        <div style="display:flex;flex-direction:column;height:100%">
+          <div style="background:#fffbeb;border-bottom:1px solid #fde68a;padding:6px 12px;font-size:12px;color:#92400e;display:flex;justify-content:space-between;align-items:center">
+            <span>Đang hiển thị qua trình xem Office Online. Nếu khung bên dưới không tải được, hãy bấm <strong>⬇️ Tải về</strong> ở góc trên.</span>
+          </div>
+          <iframe src="${embedUrl}" style="flex:1;width:100%;min-height:64vh;border:none;background:#fff"></iframe>
+        </div>
+      `;
+      return;
+    }
+
+    body.innerHTML = `
+      <div style="display:flex;flex-direction:column;align-items:center;justify-content:center;height:100%;padding:32px;text-align:center;gap:12px">
+        <div style="font-size:42px">${fileIcon(f.name)}</div>
+        <div style="font-weight:700;font-size:15px;color:#111827">Định dạng .${escapeHtmlSafe(ext)} chưa hỗ trợ xem trực tiếp ngoại tuyến</div>
+        <div style="font-size:13px;color:#6b7280;max-width:420px">Trình duyệt hiện hỗ trợ xem trực tiếp định dạng <strong>.docx, .pdf, .xlsx, ảnh, .txt</strong> (và <strong>.pptx/.doc</strong> khi chạy trực tuyến). Bạn có thể tải file về máy để mở bằng Office.</div>
+        <button type="button" class="btn btn-primary" onclick="downloadFileUnified(JSON.parse(decodeURIComponent('${jsonStr}')))">⬇️ Tải ${escapeHtmlSafe(f.name)} về máy</button>
+      </div>
+    `;
   } catch (err) {
-    downloadFileUnified({ name, dataUrl });
+    console.error('Doc viewer error:', err);
+    body.innerHTML = `
+      <div style="display:flex;flex-direction:column;align-items:center;justify-content:center;height:100%;padding:32px;text-align:center;gap:12px">
+        <div style="font-size:40px">⚠️</div>
+        <div style="font-weight:700;font-size:15px;color:#991b1b">Không thể hiển thị trực tiếp file này</div>
+        <div style="font-size:13px;color:#6b7280;max-width:420px">${escapeHtmlSafe(err.message)} — Bạn vẫn có thể tải file về máy để xem.</div>
+        <button type="button" class="btn btn-primary" onclick="downloadFileUnified(JSON.parse(decodeURIComponent('${jsonStr}')))">⬇️ Tải về máy</button>
+      </div>
+    `;
   }
 }
 
