@@ -237,7 +237,22 @@ if (user.role !== 'giaovien') navigate('dashboard.html');
 
 let filterRole = 'all';
 let filterClassId = 'all';
+let filterLoginStatus = 'all';
 let searchText = '';
+
+function getLoginStatus(u) {
+  if (u.role === 'giaovien') return 'logged_in';
+  if (!DB.userClassId(u)) return 'pending';
+  if (u.lastLogin) return 'logged_in';
+  const hasGmail = (u.email && u.email.toLowerCase().endsWith('@gmail.com')) ||
+                   (u.originalEmail && u.originalEmail.toLowerCase().endsWith('@gmail.com'));
+  return hasGmail ? 'ready_gmail' : 'no_gmail';
+}
+
+window.setLoginFilter = function(s) {
+  filterLoginStatus = s;
+  updateTableAndFilters();
+};
 
 function render() {
   const el = document.getElementById('page-content');
@@ -272,6 +287,7 @@ function render() {
           </div>
           <div class="flex gap-2" id="role-filter-wrap"></div>
         </div>
+        <div class="flex gap-2 flex-wrap" id="login-filter-wrap" style="margin-top:10px;padding-top:10px;border-top:1px solid var(--border)"></div>
       </div>
 
       <div class="table-wrap">
@@ -284,6 +300,7 @@ function render() {
               <th>Tài khoản (@gmail.com)</th>
               <th>Vai trò</th>
               <th>Lớp học</th>
+              <th>Trạng thái</th>
               <th>Số nhóm</th>
               <th>Tên đề tài</th>
               <th>Email gốc</th>
@@ -376,9 +393,31 @@ function updateTableAndFilters() {
     `).join('');
   }
 
-  // Lọc danh sách theo vai trò & lớp học
+  // Đếm trạng thái đăng nhập (theo lớp hiện tại nếu đang chọn lớp)
+  const scopeUsers = filterClassId === 'unassigned'
+    ? users.filter(u => u.role !== 'giaovien' && !DB.userClassId(u))
+    : (filterClassId !== 'all' ? users.filter(u => u.role !== 'giaovien' && DB.userClassId(u) === filterClassId) : users.filter(u => u.role !== 'giaovien'));
+  const cntLoggedIn   = scopeUsers.filter(u => getLoginStatus(u) === 'logged_in').length;
+  const cntReadyGmail = scopeUsers.filter(u => getLoginStatus(u) === 'ready_gmail').length;
+  const cntNoGmail    = scopeUsers.filter(u => getLoginStatus(u) === 'no_gmail').length;
+
+  const lfWrap = document.getElementById('login-filter-wrap');
+  if (lfWrap) {
+    lfWrap.innerHTML = `
+      <span class="text-xs text-muted" style="align-self:center;margin-right:4px">Trạng thái vào hệ thống:</span>
+      <button class="btn ${filterLoginStatus === 'all' ? 'btn-primary' : 'btn-secondary'} btn-sm" onclick="setLoginFilter('all')">Tất cả</button>
+      <button class="btn ${filterLoginStatus === 'logged_in' ? 'btn-primary' : 'btn-secondary'} btn-sm" onclick="setLoginFilter('logged_in')">🟢 Đã đăng nhập (${cntLoggedIn})</button>
+      <button class="btn ${filterLoginStatus === 'ready_gmail' ? 'btn-primary' : 'btn-secondary'} btn-sm" onclick="setLoginFilter('ready_gmail')">🔵 Có Gmail - Chưa vào (${cntReadyGmail})</button>
+      <button class="btn ${filterLoginStatus === 'no_gmail' ? 'btn-primary' : 'btn-secondary'} btn-sm" onclick="setLoginFilter('no_gmail')">⚪ Chưa có Gmail (${cntNoGmail})</button>
+    `;
+  }
+
+  // Lọc danh sách theo vai trò, lớp học & trạng thái đăng nhập
   if (filterRole !== 'all') {
     users = users.filter(u => u.role === filterRole);
+  }
+  if (filterLoginStatus !== 'all') {
+    users = users.filter(u => getLoginStatus(u) === filterLoginStatus);
   }
   if (filterClassId === 'unassigned') {
     users = users.filter(u => u.role !== 'giaovien' && !DB.userClassId(u));
@@ -402,7 +441,7 @@ function updateTableAndFilters() {
   if (!tbody) return;
 
   if (users.length === 0) {
-    tbody.innerHTML = `<tr><td colspan="11"><div class="empty"><div class="empty-icon">👤</div><p>Không tìm thấy tài khoản nào</p></div></td></tr>`;
+    tbody.innerHTML = `<tr><td colspan="12"><div class="empty"><div class="empty-icon">👤</div><p>Không tìm thấy tài khoản nào</p></div></td></tr>`;
     return;
   }
 
@@ -410,6 +449,18 @@ function updateTableAndFilters() {
     const group = DB.groupOfUser(u.id);
     const uCid = DB.userClassId(u);
     const cls = uCid ? DB.findClass(uCid) : null;
+    const st = getLoginStatus(u);
+    const loginTimeTitle = u.lastLogin ? `Đăng nhập gần nhất: ${new Date(u.lastLogin).toLocaleString('vi-VN')}` : '';
+    const statusBadge = u.role === 'giaovien'
+      ? '<span class="badge" style="background:#dcfce7;color:#166534;border:1px solid #bbf7d0">🟢 Đang hoạt động</span>'
+      : st === 'logged_in'
+      ? `<span class="badge" style="background:#dcfce7;color:#166534;border:1px solid #bbf7d0;font-weight:700" title="${loginTimeTitle}">🟢 Đã đăng nhập</span>`
+      : st === 'ready_gmail'
+      ? '<span class="badge" style="background:#dbeafe;color:#1e40af;border:1px solid #bfdbfe;font-weight:600" title="Đã có @gmail.com, sẵn sàng đăng nhập Google">🔵 Có Gmail (chưa vào)</span>'
+      : st === 'pending'
+      ? '<span class="badge" style="background:#fef3c7;color:#92400e;border:1px solid #fde68a;font-weight:700">⏳ Chờ duyệt</span>'
+      : '<span class="badge" style="background:#f3f4f6;color:#4b5563;border:1px solid #e5e7eb" title="Chưa có @gmail.com, cần bổ sung hoặc SV tự nhập MSSV">⚪ Chưa có Gmail</span>';
+
     return `<tr>
       <td class="text-muted">${idx + 1}</td>
       <td>
@@ -434,6 +485,7 @@ function updateTableAndFilters() {
                ? `<span class="badge" style="background:#fef3c7;color:#92400e;border:1px solid #fde68a;font-weight:700">⏳ Xin vào: ${DB.findClass(u.requestedClassId).name}</span>`
                : '<span class="badge badge-warning" style="font-weight:700">⏳ Chờ duyệt lớp</span>'))}
       </td>
+      <td>${statusBadge}</td>
       <td>
         ${group ? `<span class="chip font-bold">${group.name}</span>` : '<span class="text-muted">Chưa có nhóm</span>'}
       </td>

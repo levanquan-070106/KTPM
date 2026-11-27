@@ -75,7 +75,7 @@ function getFullGroups() {
 // 1. Bootstrap: Lấy toàn bộ dữ liệu ban đầu cho client
 app.get('/api/bootstrap', (req, res) => {
   try {
-    const users = db.prepare('SELECT id, name, email, password, role, class_id as classId, mssv, original_email as originalEmail, requested_class_id as requestedClassId FROM users').all();
+    const users = db.prepare('SELECT id, name, email, password, role, class_id as classId, mssv, original_email as originalEmail, requested_class_id as requestedClassId, last_login as lastLogin FROM users').all();
     const classes = db.prepare('SELECT id, name, code, semester, lecturer_id as lecturerId, total_weeks as totalWeeks, sem_start as semStart, active, created_at as createdAt FROM classes').all()
       .map(c => ({ ...c, active: Boolean(c.active) }));
     const groups = getFullGroups();
@@ -200,7 +200,7 @@ app.post('/api/auth/login', (req, res) => {
 
     const q = email.trim().toLowerCase();
     const user = db.prepare(`
-      SELECT id, name, email, password, role, class_id as classId, mssv, original_email as originalEmail 
+      SELECT id, name, email, password, role, class_id as classId, mssv, original_email as originalEmail, requested_class_id as requestedClassId, last_login as lastLogin
       FROM users 
       WHERE LOWER(email) = ? OR LOWER(original_email) = ? OR LOWER(email) = ?
     `).get(q, q, q.replace('@edu.vn', '@ktpmud.edu'));
@@ -208,6 +208,13 @@ app.post('/api/auth/login', (req, res) => {
     if (!user || user.password !== password) {
       return res.status(401).json({ success: false, message: 'Email hoặc mật khẩu không đúng!' });
     }
+
+    const nowIso = new Date().toISOString();
+    try {
+      db.prepare('UPDATE users SET last_login = ? WHERE id = ?').run(nowIso, user.id);
+      user.lastLogin = nowIso;
+      db.setUpdatedAt();
+    } catch {}
 
     res.json({ success: true, user });
   } catch (err) {
@@ -324,6 +331,14 @@ app.post('/api/auth/google', (req, res) => {
         user.originalEmail = q;
       } catch {}
     }
+
+    // Ghi nhận thời điểm đăng nhập thành công gần nhất
+    const nowIso = new Date().toISOString();
+    try {
+      db.prepare('UPDATE users SET last_login = ? WHERE id = ?').run(nowIso, user.id);
+      user.lastLogin = nowIso;
+      db.setUpdatedAt();
+    } catch {}
 
     res.json({ success: true, user });
   } catch (err) {
